@@ -324,3 +324,11 @@ header, .round-nav, .main { position: relative; z-index: 1; }
 @media (max-width: 700px) { .hook { white-space: normal; width: auto; border: 0; animation: none; } }
 .home-main { position: relative; }
 .home-main::before { content: ''; position: absolute; inset: -40px -120px -40px -80px; background: radial-gradient(ellipse at 35% 50%, rgba(8, 13, 22, .88), rgba(8, 13, 22, 0) 72%); z-index: -1; pointer-events: none; }
+
+/* full condition of card tasks */
+.cards-block { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin: 18px 0; max-width: 1000px; }
+.cards-block > div { border: 1px solid #304059; border-left: 3px solid var(--lime); background: #121d2b; border-radius: 0 12px 12px 0; padding: 16px 20px; }
+.cards-block .mono { font-size: 12px; letter-spacing: .14em; color: var(--muted); }
+.cards-block p { margin: 6px 0 0; font-size: 18px; line-height: 1.5; }
+.cards-block.host > div { border-style: dashed; border-left-color: var(--amber); }
+@media (max-width: 700px) { .cards-block { grid-template-columns: 1fr; } }

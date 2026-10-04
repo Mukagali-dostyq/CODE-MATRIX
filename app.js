@@ -3,14 +3,30 @@
 
 const G = window.GAME;
 const root = document.getElementById('app');
-const KEY = 'code-matrix-v2';
+const KEY = 'code-matrix-v3';
 const STAGES = ['home', 'mixer', 'rules', 'round', 'question', 'review', 'submit', 'answer', 'roundEnd', 'break', 'bet', 'bankQ', 'bankAnswer', 'final', 'tie', 'tieAnswer'];
 const ROUNDS_WITH_BREAK = [1, 3];
+
+const STEPS = (() => {
+  const steps = [{ stage: 'mixer', r: 0, q: 0 }, { stage: 'rules', r: 0, q: 0, timed: true }];
+  G.rounds.forEach((rd, r) => {
+    steps.push({ stage: 'round', r, q: 0 });
+    rd.questions.forEach((_, q) => steps.push({ stage: 'question', r, q, timed: true }));
+    steps.push({ stage: 'review', r, q: 0 }, { stage: 'submit', r, q: 0, timed: true });
+    rd.questions.forEach((_, q) => steps.push({ stage: 'answer', r, q }));
+    if (rd.bankQuestion) steps.push({ stage: 'bet', r, q: 0, timed: true }, { stage: 'bankQ', r, q: 0, timed: true }, { stage: 'bankAnswer', r, q: 0 });
+    steps.push({ stage: 'roundEnd', r, q: 0 });
+    if (ROUNDS_WITH_BREAK.includes(r)) steps.push({ stage: 'break', r, q: 0, timed: true });
+  });
+  steps.push({ stage: 'final', r: G.rounds.length - 1, q: 0 });
+  return steps;
+})();
+const stepIdx = (stage, r = 0) => STEPS.findIndex(x => x.stage === stage && x.r === r);
 
 const zeros = () => [0, 0, 0, 0, 0, 0, 0];
 const makeTeams = n => Array.from({ length: n }, (_, i) => ({ name: G.teamNames[i] || `Команда ${i + 1}`, scores: zeros(), members: [] }));
 const initial = () => ({
-  lang: 'both', stage: 'home', r: 0, q: 0, hints: 1,
+  lang: 'both', stage: 'home', r: 0, q: 0, hints: 1, i: 0, phase: 'ready',
   teams: makeTeams(4), roster: '', teamSize: 4, mixed: false, revealed: 0,
   elapsed: 0, eventRunning: false, eventAt: 0,
   remaining: 45, deadline: 0, running: false, sound: true, volume: .25
@@ -21,10 +37,10 @@ try {
   const old = JSON.parse(localStorage.getItem(KEY));
   if (old && ['kk', 'ru', 'both'].includes(old.lang) && Array.isArray(old.teams) && old.teams.length >= 2 && old.teams.length <= 10
     && old.teams.every(t => typeof t.name === 'string' && t.scores?.length === 7 && Array.isArray(t.members))
-    && old.r >= 0 && old.r < 6 && old.q >= 0 && old.q < G.rounds[old.r].questions.length && STAGES.includes(old.stage)) s = { ...s, ...old };
+    && Number.isInteger(old.i) && old.i >= 0 && old.i < STEPS.length && ['ready', 'run'].includes(old.phase) && old.r >= 0 && old.r < 6 && old.q >= 0 && old.q < G.rounds[old.r].questions.length && STAGES.includes(old.stage)) s = { ...s, ...old };
 } catch { /* start fresh */ }
 
-let modal = '', prepWarn = false, audio = null, music = null, soundBusy = false, storageFailed = false;
+let modal = '', showCards = false, prepWarn = false, audio = null, music = null, soundBusy = false, storageFailed = false;
 
 const esc = x => String(x).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const txt = (kk, ru) => s.lang === 'ru' ? ru : kk;
@@ -74,7 +90,7 @@ function musicToggle() {
 function timerReset(seconds) { s.remaining = seconds; s.running = false; s.deadline = 0; }
 function timerToggle() {
   if (s.running) { s.remaining = left(); s.running = false; }
-  else if (s.remaining > 0) { s.deadline = Date.now() + s.remaining * 1000; s.running = true; }
+  else if (s.remaining > 0) { s.deadline = Date.now() + s.remaining * 1000; s.running = true; if (STEPS[s.i]?.timed) s.phase = 'run'; }
   save(); render();
 }
 function eventToggle() {
@@ -85,10 +101,8 @@ function eventToggle() {
 const stageDuration = () => s.stage === 'question' ? (question().time || round().time) : s.stage === 'break' || s.stage === 'rules' ? 300 : s.stage === 'submit' ? 10 : s.stage === 'tie' ? 30 : s.stage === 'bet' ? 30 : s.stage === 'bankQ' ? bank().time : 0;
 function change(stage, { r = s.r, q = 0 } = {}) {
   stopMusic();
-  s.stage = stage; s.r = r; s.q = q; s.hints = 1;
+  s.stage = stage; s.r = r; s.q = q; s.hints = 1; showCards = false;
   timerReset(stageDuration());
-  if (stage === 'submit') { s.deadline = Date.now() + 10000; s.running = true; }
-  if (stage === 'question' && question().rush) { s.deadline = Date.now() + s.remaining * 1000; s.running = true; sting(); }
   save(); render();
   window.scrollTo({ top: 0, behavior: 'instant' });
 }
@@ -166,6 +180,7 @@ function visual(kind, mini = false, q = question()) {
     default: return '';
   }
 }
+const cardsBlock = (q, cls = '') => q.cards ? `<div class="cards-block ${cls}"><div><span class="mono">${txt('А КАРТОЧКА · ЕРЕЖЕЛЕР', 'КАРТОЧКА А · ПРАВИЛА')}</span><p>${tr(q.cards.a)}</p></div><div><span class="mono">${txt('Б КАРТОЧКА · ДЕРЕКТЕР', 'КАРТОЧКА Б · ДАННЫЕ')}</span><p>${tr(q.cards.b)}</p></div></div>` : '';
 const code = q => q.code ? `<pre><code>${esc(q.code)}</code></pre>` : '';
 
 /* ---------- background: 0/1 rain ---------- */
@@ -265,16 +280,17 @@ function roundIntro() {
 function questionView() {
   const q = question(), r = round();
   const label = r.cards ? `${r.name[s.lang === 'ru' ? 'ru' : 'kk'].toUpperCase()} № ${s.q + 1}` : `${txt('СҰРАҚ', 'ВОПРОС')} ${String(s.q + 1).padStart(2, '0')} <span>/ ${String(r.questions.length).padStart(2, '0')}</span>`;
-  const cipher = r.cards ? `<div class="cipher-box"><span class="mono">${txt('ЖАУАП', 'ОТВЕТ')}</span><strong>?</strong></div><p class="detail">${tr(B('Қажетті барлығы үстеліңізде жатыр. Жауапты бланкіге жазыңыз.', 'Всё необходимое лежит у вас на столе. Ответ запишите в бланк.'))}</p>` : '';
+  const cipher = r.cards ? `<div class="cipher-box"><span class="mono">${txt('ЖАУАП', 'ОТВЕТ')}</span><strong>?</strong></div><p class="detail">${tr(B('Қажетті барлығы үстеліңізде жатыр. Жауапты бланкіге жазыңыз.', 'Всё необходимое лежит у вас на столе. Ответ запишите в бланк.'))}</p>${showCards ? cardsBlock(q, 'host') : ''}` : '';
   const hints = q.hints ? `<div class="hints">${q.hints.slice(0, s.hints).map((h, i) => `<p><b>0${i + 1}</b>${tr(h)}</p>`).join('')}</div>${s.hints < 3 ? button('hint', 'Келесі белгі', 'Следующая подсказка', 'subtle') : ''}` : '';
   const aside = q.hints
     ? `<div class="ladder">${txt('Қазір жауап берсе', 'Если ответить сейчас')}<b>+${4 - s.hints}</b></div>`
     : `<p class="write-note">${tr(B('Жауапты бланкіге жазыңыз', 'Запишите ответ в бланк'))}</p>`;
+  const hostCards = r.cards ? `<p class="write-note">${button('cards', showCards ? 'Карточкаларды жасыру' : 'Карточкалар (жүргізушіге)', showCards ? 'Скрыть карточки' : 'Карточки (ведущему)', 'subtle')}</p>` : '';
   const rush = q.rush ? `<div class="rush-banner"><b>${txt('АСЫҒЫС', 'СПЕШКА')}</b><span>${q.time} ${txt('секунд', 'секунд')} · ${q.points} ${txt('ұпай', 'балла')}</span></div>` : '';
-  return `<div class="question-layout"><section>${rush}<p class="eyebrow">${label}</p><h1 class="question-title${q.q.ru.length > 90 ? ' long' : ''}">${tr(q.q)}</h1>${q.detail ? `<p class="detail">${tr(q.detail)}</p>` : ''}${code(q)}${cipher}${hints}${q.visual ? `<div class="visual">${visual(q.visual, false, q)}</div>` : ''}</section><aside>${timer()}${aside}</aside></div>`;
+  return `<div class="question-layout"><section>${rush}<p class="eyebrow">${label}</p><h1 class="question-title${q.q.ru.length > 90 ? ' long' : ''}">${tr(q.q)}</h1>${q.detail ? `<p class="detail">${tr(q.detail)}</p>` : ''}${code(q)}${cipher}${hints}${q.visual ? `<div class="visual">${visual(q.visual, false, q)}</div>` : ''}</section><aside>${timer()}${aside}${hostCards}</aside></div>`;
 }
 function review() {
-  return `<p class="eyebrow">RECAP</p><h1 class="medium-title">${tr(B('Жауаптарды тексеріңіз', 'Проверьте свои ответы'))}</h1><div class="review-list">${round().questions.map((q, i) => `<article><b class="review-number">0${i + 1}</b><div><h2>${tr(q.q)}</h2>${q.detail ? `<p>${tr(q.detail)}</p>` : ''}${code(q)}${q.hints ? `<p>${q.hints.map(h => tr(h)).join('<br>')}</p>` : ''}${q.visual ? `<div class="mini-visual">${visual(q.visual, true, q)}</div>` : ''}</div></article>`).join('')}</div>`;
+  return `<p class="eyebrow">RECAP</p><h1 class="medium-title">${tr(B('Жауаптарды тексеріңіз', 'Проверьте свои ответы'))}</h1><div class="review-list">${round().questions.map((q, i) => `<article><b class="review-number">0${i + 1}</b><div><h2>${tr(q.q)}</h2>${q.detail ? `<p>${tr(q.detail)}</p>` : ''}${code(q)}${cardsBlock(q)}${q.hints ? `<p>${q.hints.map(h => tr(h)).join('<br>')}</p>` : ''}${q.visual ? `<div class="mini-visual">${visual(q.visual, true, q)}</div>` : ''}</div></article>`).join('')}</div>`;
 }
 function submit() {
   return `<div class="center-stage"><p class="eyebrow">PENS DOWN</p><h1>${tr(B('Бланкілерді тапсырыңыз', 'Сдайте бланки'))}</h1><p class="lead">${tr(B('Жүргізуші бланкілерді жинаған соң жауаптарды ашады.', 'Ведущий откроет ответы после сбора бланков.'))}</p>${timer()}</div>`;
@@ -282,7 +298,7 @@ function submit() {
 function answer() {
   const q = question(), r = round();
   const pts = r.ladder ? `+3 / +2 / +1 ${txt('ұпай', 'балл(а)')}` : `+${pointsOf(r, q)} ${txt('ұпай', 'балл(а)')}`;
-  return `<div class="answer-screen"><p class="eyebrow">${txt('ЖАУАП', 'ОТВЕТ')} 0${s.q + 1} / 0${r.questions.length}</p><p class="answer-question">${tr(q.q)}</p><h1 class="answer-value">${tr(q.answer)}</h1><p class="answer-explain">${tr(q.explain)}</p><span class="points">${pts}</span></div>`;
+  return `<div class="answer-screen"><p class="eyebrow">${txt('ЖАУАП', 'ОТВЕТ')} 0${s.q + 1} / 0${r.questions.length}</p><p class="answer-question">${tr(q.q)}</p>${q.detail ? `<p class="detail">${tr(q.detail)}</p>` : ''}${code(q)}${cardsBlock(q)}${q.hints ? `<p class="detail">${q.hints.map(h => tr(h)).join('<br>')}</p>` : ''}${q.visual ? `<div class="mini-visual">${visual(q.visual, true, q)}</div>` : ''}<h1 class="answer-value">${tr(q.answer)}</h1><p class="answer-explain">${tr(q.explain)}</p><span class="points">${pts}</span></div>`;
 }
 const ranking = () => s.teams.map(t => ({ ...t, total: total(t) })).sort((a, b) => b.total - a.total);
 function leaderboard() {
@@ -323,26 +339,30 @@ function body() {
   }[s.stage] || home)();
 }
 function nextLabel() {
-  return ({
-    mixer: B('Ережелерге', 'К правилам'),
-    rules: B('1-раунд', 'Раунд 1'),
-    round: B('Тапсырмаларға көшу', 'К заданиям'),
-    question: s.q === round().questions.length - 1 ? B('Қайталау', 'Повтор заданий') : B('Келесі тапсырма', 'Следующее задание'),
-    review: B('Бланкілерді жинау', 'Собрать бланки'),
-    submit: B('Бланкілер жиналды · жауаптар', 'Бланки собраны · к ответам'),
-    answer: s.q < round().questions.length - 1 ? B('Келесі жауап', 'Следующий ответ') : s.r === 5 ? B('Ва-банк', 'Ва-банк') : B('Ұпайларды санау', 'Подсчёт баллов'),
-    bet: B('Сұрақты көрсету', 'Показать вопрос'),
-    bankQ: B('Жауапты ашу', 'Открыть ответ'),
-    bankAnswer: B('Ұпайларды санау', 'Подсчёт баллов'),
-    roundEnd: ROUNDS_WITH_BREAK.includes(s.r) ? B('5 минут үзіліс', 'Перерыв 5 минут') : s.r === 5 ? B('Қорытынды', 'Итоги') : B('Келесі раунд', 'Следующий раунд'),
-    break: B('Ойынды жалғастыру', 'Продолжить игру'),
-    tie: B('Жауапты ашу', 'Открыть ответ'),
-    tieAnswer: B('Қорытындыға оралу', 'Вернуться к итогам')
-  })[s.stage];
+  if (s.stage === 'tie') return B('Жауапты ашу', 'Открыть ответ');
+  if (s.stage === 'tieAnswer') return B('Қорытындыға оралу', 'Вернуться к итогам');
+  const st = STEPS[s.i];
+  if (!st || st.stage === 'final') return null;
+  if (st.timed && s.phase === 'ready') return B('Таймерді қосу', 'Запустить таймер');
+  switch (st.stage) {
+    case 'mixer': return !s.mixed ? B('Командаларға араластыру', 'Смешать в команды') : s.revealed < s.teams.length ? B('Келесі команданы ашу', 'Открыть следующую команду') : B('Ережелерге', 'К правилам');
+    case 'rules': return B('1-раунд', 'Раунд 1');
+    case 'round': return B('Тапсырмаларға көшу', 'К заданиям');
+    case 'question': return question().hints && s.hints < 3 && left() > 0 ? B('Келесі белгі', 'Следующая подсказка') : s.q === round().questions.length - 1 ? B('Қайталау', 'Повтор заданий') : B('Келесі тапсырма', 'Следующее задание');
+    case 'review': return B('Бланкілерді жинау', 'Собрать бланки');
+    case 'submit': return B('Бланкілер жиналды · жауаптар', 'Бланки собраны · к ответам');
+    case 'answer': return s.q < round().questions.length - 1 ? B('Келесі жауап', 'Следующий ответ') : s.r === 5 ? B('Ва-банк', 'Ва-банк') : B('Ұпайларды санау', 'Подсчёт баллов');
+    case 'bet': return B('Сұрақты көрсету', 'Показать вопрос');
+    case 'bankQ': return B('Жауапты ашу', 'Открыть ответ');
+    case 'bankAnswer': return B('Ұпайларды санау', 'Подсчёт баллов');
+    case 'roundEnd': return ROUNDS_WITH_BREAK.includes(s.r) ? B('5 минут үзіліс', 'Перерыв 5 минут') : s.r === 5 ? B('Қорытынды', 'Итоги') : B('Келесі раунд', 'Следующий раунд');
+    case 'break': return B('Ойынды жалғастыру', 'Продолжить игру');
+  }
+  return null;
 }
 function footer() {
   const n = nextLabel();
-  return `<footer><div class="session"><span id="event-time">${fmt(elapsed())}</span><span>/ 90:00</span>${button('event', s.eventRunning ? 'Ⅱ' : '▶', s.eventRunning ? 'Ⅱ' : '▶', 'icon-button', `aria-label="${txt('Жалпы уақытты кідірту немесе қосу', 'Пауза или запуск общего времени')}"`)}${button('agenda', 'Жоспар', 'План', 'subtle')}${button('scores', 'Ұпайлар', 'Баллы', 'subtle')}</div><div class="step-actions">${['question', 'answer'].includes(s.stage) && s.q > 0 ? button('prev', 'Артқа', 'Назад', 'subtle') : ''}${n ? `<button class="primary" data-a="next" ${s.stage === 'submit' && left() > 0 ? 'disabled' : ''}>${tr(n)}</button>` : ''}</div></footer>`;
+  return `<footer><div class="session"><span id="event-time">${fmt(elapsed())}</span><span>/ 90:00</span>${button('event', s.eventRunning ? 'Ⅱ' : '▶', s.eventRunning ? 'Ⅱ' : '▶', 'icon-button', `aria-label="${txt('Жалпы уақытты кідірту немесе қосу', 'Пауза или запуск общего времени')}"`)}${button('agenda', 'Жоспар', 'План', 'subtle')}${button('scores', 'Ұпайлар', 'Баллы', 'subtle')}</div><div class="step-actions">${s.i > 0 || ['tie', 'tieAnswer'].includes(s.stage) || (s.stage === 'mixer' && s.revealed > 0) ? button('prev', 'Артқа', 'Назад', 'subtle') : ''}${n ? `<button class="primary" data-a="next">${tr(n)}</button>` : ''}</div></footer>`;
 }
 
 /* ---------- dialogs ---------- */
@@ -359,7 +379,7 @@ function prepDialog() {
   return `<h2>Подготовка жеребьёвки</h2><p class="muted">Эти данные видите только вы. Закройте окно до того, как показывать экран ученикам.</p>${prepWarn ? '<p class="host-note">Нужно минимум 4 игрока. Впишите список и повторите жеребьёвку.</p>' : ''}<h3>Список игроков</h3><p class="small muted">По одному в строке: имя и класс через запятую или пробел. Например: «Айдана, 10» или «Тимур Ким 11А».</p><label class="sr-only" for="roster">Список игроков</label><textarea id="roster" placeholder="Айдана, 10&#10;Алишер, 11">${esc(s.roster)}</textarea><div class="row"><span id="roster-count" class="mono small">${p.length} игроков · 10 кл.: ${g10} · 11 кл.: ${g11}</span></div><div class="row"><label for="team-size">Размер команды (3–5)</label><input id="team-size" type="number" min="3" max="5" value="${s.teamSize}"></div><div class="row">${button('closePrep', 'Сохранить и закрыть', 'Сохранить и закрыть', 'primary')}</div>`;
 }
 function help() {
-  return `<h2>${txt('Жүргізушіге', 'Ведущему')}</h2><p>Показывайте сайт с одного устройства на проекторе. Команды отвечают на бумажных бланках. Это окно ученикам не показывайте.</p><h3>Подготовка</h3><div class="row">${button('prep', 'Список игроков и жеребьёвка', 'Список игроков', '')}${button('print', 'Печать бланков', 'Печать бланков', '')}${button('printCards', 'Печать карточек «Шифр» и «Эхо»', 'Карточки', '')}${button('printGrowth', 'Печать карт роста', 'Карты роста', '')}</div><h3>Что делать в каждом раунде</h3>${G.rounds.map((r, i) => `<p class="host-note"><strong>${i + 1}. ${esc(r.name.ru)}.</strong> ${esc(r.host)}</p>`).join('')}<h3>Клавиши</h3><p>→ — следующий шаг, ← — предыдущее задание, пробел — таймер, Esc — закрыть окно.</p><p>В раунде «Видишь, слышишь» включите звук. Если звук не работает, используйте вариант без звука. Фоновая музыка доступна на перерыве.</p><label class="volume-label">${txt('Дыбыс деңгейі', 'Громкость')}<input type="range" id="volume" min="0" max="0.8" step="0.05" value="${s.volume}"></label><p class="small muted">Прогресс сохраняется только в этом браузере. «Новая игра» сбрасывает баллы.</p>`;
+  return `<h2>${txt('Жүргізушіге', 'Ведущему')}</h2><p>Показывайте сайт с одного устройства на проекторе. Команды отвечают на бумажных бланках. Это окно ученикам не показывайте.</p><h3>Подготовка</h3><div class="row">${button('prep', 'Список игроков и жеребьёвка', 'Список игроков', '')}${button('print', 'Печать бланков', 'Печать бланков', '')}${button('printCards', 'Печать карточек «Шифр» и «Эхо»', 'Карточки', '')}${button('printGrowth', 'Печать карт роста', 'Карты роста', '')}</div><h3>Что делать в каждом раунде</h3>${G.rounds.map((r, i) => `<p class="host-note"><strong>${i + 1}. ${esc(r.name.ru)}.</strong> ${esc(r.host)}</p>`).join('')}<h3>Пульт</h3><p>Всё ведётся одной кнопкой «Далее» (→ или PageDown на пульте). На экране с таймером первое нажатие запускает время, следующее открывает следующий экран. В раунде «Три подсказки» нажатия во время таймера открывают подсказки. «Назад» (← или PageUp) возвращает на шаг назад, пробел ставит таймер на паузу, Esc закрывает окно.</p><p>В раунде «Видишь, слышишь» включите звук. Если звук не работает, используйте вариант без звука. Фоновая музыка доступна на перерыве.</p><label class="volume-label">${txt('Дыбыс деңгейі', 'Громкость')}<input type="range" id="volume" min="0" max="0.8" step="0.05" value="${s.volume}"></label><p class="small muted">Прогресс сохраняется только в этом браузере. «Новая игра» сбрасывает баллы.</p>`;
 }
 
 /* ---------- render ---------- */
@@ -377,27 +397,53 @@ function render() {
   save();
 }
 
+function go(i, phase = 'ready') {
+  i = Math.max(0, Math.min(STEPS.length - 1, i));
+  const st = STEPS[i];
+  s.i = i; s.phase = phase;
+  if (st.stage === 'final' && s.eventRunning) { s.elapsed = elapsed(); s.eventRunning = false; }
+  if (st.stage === 'round') sting();
+  change(st.stage, { r: st.r, q: st.q });
+}
+function startGame() {
+  if (!s.eventRunning && s.elapsed === 0) { s.eventAt = Date.now(); s.eventRunning = true; }
+  if (s.resume) { const v = s.resume; delete s.resume; go(v.i, v.phase); s.hints = v.hints; s.remaining = v.remaining; render(); }
+  else if (s.i > 0) go(s.i, s.phase);
+  else go(s.mixed ? stepIdx('rules') : 0);
+}
+/* One button drives the whole evening: on a timed screen the first press starts the timer, the next one moves on. */
 function next() {
-  switch (s.stage) {
-    case 'mixer': change('rules'); break;
-    case 'rules': sting(); change('round', { r: 0 }); break;
-    case 'round': change('question'); break;
-    case 'question': s.q < round().questions.length - 1 ? change('question', { q: s.q + 1 }) : change('review'); break;
-    case 'review': change('submit'); break;
-    case 'submit': if (left() === 0) change('answer'); break;
-    case 'answer': s.q < round().questions.length - 1 ? change('answer', { q: s.q + 1 }) : change(s.r === 5 ? 'bet' : 'roundEnd'); break;
-    case 'bet': change('bankQ'); break;
-    case 'bankQ': change('bankAnswer'); break;
-    case 'bankAnswer': change('roundEnd'); break;
-    case 'roundEnd':
-      if (ROUNDS_WITH_BREAK.includes(s.r)) change('break');
-      else if (s.r === 5) { if (s.eventRunning) { s.elapsed = elapsed(); s.eventRunning = false; } change('final'); }
-      else { sting(); change('round', { r: s.r + 1 }); }
-      break;
-    case 'break': sting(); change('round', { r: s.r + 1 }); break;
-    case 'tie': change('tieAnswer'); break;
-    case 'tieAnswer': change('final'); break;
+  if (s.stage === 'home') return startGame();
+  if (s.stage === 'tie') return change('tieAnswer');
+  if (s.stage === 'tieAnswer') return go(STEPS.length - 1);
+  const st = STEPS[s.i];
+  if (!st) return;
+  if (st.stage === 'mixer') {
+    if (!s.mixed) return mix();
+    if (s.revealed < s.teams.length) { s.revealed++; return render(); }
+    return go(s.i + 1);
   }
+  if (st.timed) {
+    if (s.phase === 'ready') {
+      s.phase = 'run';
+      if (s.remaining > 0) { s.deadline = Date.now() + s.remaining * 1000; s.running = true; }
+      save(); render();
+      if (st.stage === 'question' && question().visual === 'sound') setTimeout(playSound, 50);
+      return;
+    }
+    if (st.stage === 'question' && question().hints && s.hints < 3 && left() > 0) { s.hints++; return render(); }
+    return go(s.i + 1);
+  }
+  if (st.stage !== 'final') go(s.i + 1);
+}
+function prev() {
+  if (s.stage === 'tieAnswer') return change('tie');
+  if (s.stage === 'tie') return go(STEPS.length - 1);
+  const st = STEPS[s.i];
+  if (!st || s.stage === 'home') return;
+  if (st.stage === 'mixer') { if (s.mixed && s.revealed > 0) { s.revealed--; render(); } return; }
+  if (st.timed && s.phase === 'run') return go(s.i);
+  if (s.i > 0) go(s.i - 1);
 }
 function playSound() {
   if (soundBusy) return;
@@ -444,18 +490,15 @@ root.addEventListener('click', e => {
   if (!el || el.disabled) return;
   const a = el.dataset.a;
   switch (a) {
-    case 'start':
-      if (!s.eventRunning && s.elapsed === 0) { s.eventAt = Date.now(); s.eventRunning = true; }
-      if (s.resume) { const v = s.resume; delete s.resume; change(v.stage, { r: v.r, q: v.q }); s.hints = v.hints; s.remaining = v.remaining; render(); }
-      else change(s.mixed ? 'rules' : 'mixer');
-      break;
-    case 'toMixer': change('mixer'); break;
-    case 'home': if (s.stage !== 'home') { s.resume = { stage: s.stage, r: s.r, q: s.q, hints: s.hints, remaining: left() }; change('home'); } break;
+    case 'start': startGame(); break;
+    case 'toMixer': go(0); break;
+    case 'home': if (s.stage !== 'home') { s.resume = { i: s.i, phase: s.phase, hints: s.hints, remaining: left() }; change('home'); } break;
     case 'next': next(); break;
-    case 'prev': if (s.q > 0) change(s.stage, { q: s.q - 1 }); break;
-    case 'jump': if (confirm(txt('Осы раундтың басына өту керек пе? Ұпайлар сақталады.', 'Перейти к началу этого раунда? Баллы сохранятся.'))) change('round', { r: Number(el.dataset.i) }); break;
+    case 'prev': prev(); break;
+    case 'jump': if (confirm(txt('Осы раундтың басына өту керек пе? Ұпайлар сақталады.', 'Перейти к началу этого раунда? Баллы сохранятся.'))) go(stepIdx('round', Number(el.dataset.i))); break;
     case 'timer': timerToggle(); break;
-    case 'resetTimer': timerReset(stageDuration() || 30); save(); render(); break;
+    case 'resetTimer': timerReset(stageDuration() || 30); if (STEPS[s.i]?.timed) s.phase = 'ready'; save(); render(); break;
+    case 'cards': showCards = !showCards; render(); break;
     case 'event': eventToggle(); break;
     case 'hint': s.hints = Math.min(3, s.hints + 1); render(); break;
     case 'help': case 'agenda': case 'scores': modal = a; render(); break;
@@ -521,10 +564,10 @@ document.addEventListener('keydown', e => {
     }
     return;
   }
-  if (e.target.matches('input, select, textarea, button')) return;
-  if (e.key === 'ArrowRight') { e.preventDefault(); next(); }
-  if (e.key === 'ArrowLeft' && ['question', 'answer'].includes(s.stage) && s.q > 0) change(s.stage, { q: s.q - 1 });
-  if (e.key === ' ' && ['question', 'break', 'rules', 'tie'].includes(s.stage)) { e.preventDefault(); timerToggle(); }
+  if (e.target.matches('input, select, textarea')) return;
+  if (e.key === 'ArrowRight' || e.key === 'PageDown') { e.preventDefault(); next(); }
+  if (e.key === 'ArrowLeft' || e.key === 'PageUp') { e.preventDefault(); prev(); }
+  if (e.key === ' ' && !e.target.matches('button') && STEPS[s.i]?.timed && s.stage !== 'home') { e.preventDefault(); timerToggle(); }
 });
 setInterval(() => {
   if (s.running && left() === 0) {
