@@ -15,7 +15,7 @@
 }
 
 * { box-sizing: border-box; }
-body { margin: 0; background: var(--bg); color: var(--ink); font: 16px/1.55 Manrope, Arial, sans-serif; background-image: radial-gradient(ellipse at 70% 0%, #18243770, transparent 60%); }
+body { margin: 0; background: var(--bg); position: relative; color: var(--ink); font: 16px/1.55 Manrope, Arial, sans-serif; background-image: radial-gradient(ellipse at 70% 0%, #18243770, transparent 60%); }
 button, input, select, textarea { font: inherit; }
 button { cursor: pointer; border: 1px solid var(--line); border-radius: 12px; background: var(--panel); color: var(--ink); padding: 12px 18px; min-height: 44px; transition: border-color .2s, background .2s, transform .2s; }
 button:hover { border-color: var(--lime); }
@@ -65,7 +65,7 @@ header { display: flex; align-items: center; justify-content: space-between; gap
 .inline-actions { display: flex; gap: 12px; flex-wrap: wrap; }
 
 /* home */
-.home-layout { display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(0, .9fr); gap: 6vw; align-items: center; }
+.home-layout { display: flex; align-items: center; min-height: 62vh; }
 .home-main h1 { font-size: clamp(76px, 10vw, 150px); line-height: .95; margin: 0 0 28px; letter-spacing: -.06em; }
 .home-main h1 em { font-style: normal; color: var(--lime); }
 .title-dot { color: var(--lime); animation: blink 2s steps(2) infinite; }
@@ -77,14 +77,6 @@ header { display: flex; align-items: center; justify-content: space-between; gap
 .home-meta strong > span { font: 14px Manrope; margin-left: 6px; letter-spacing: 0; color: var(--muted); }
 .home-meta > div > span { font-size: 14px; color: var(--muted); }
 .home-start { display: flex; gap: 12px; flex-wrap: wrap; }
-.rain-panel { position: relative; height: min(560px, 62vh); min-height: 380px; border: 1px solid var(--line); border-radius: 24px; background: linear-gradient(180deg, #0b1424, #060a12); overflow: hidden; }
-.rain { position: absolute; inset: 0; display: flex; justify-content: space-between; padding: 0 18px; font: 500 20px/1.55 var(--mono); white-space: pre; color: var(--lime); }
-.rain span { display: block; opacity: var(--o); animation: fall var(--d) linear infinite; }
-.rain-panel::after { content: ''; position: absolute; left: 0; right: 0; bottom: 0; height: 55%; background: linear-gradient(0deg, #060a12 25%, #060a1200); }
-.rain-caption { position: absolute; left: 32px; right: 32px; bottom: 28px; z-index: 2; }
-.rain-caption p { margin: 0; }
-.rain-caption .mono { font-size: 12px; letter-spacing: .16em; color: var(--lime); }
-.rain-caption strong { display: block; font-size: clamp(22px, 2.2vw, 30px); line-height: 1.2; letter-spacing: -.02em; margin-top: 6px; }
 
 /* briefing / round intro */
 .stage-intro { display: grid; grid-template-columns: minmax(0, 1fr) 220px; gap: 70px; align-items: center; min-height: 58vh; }
@@ -241,10 +233,9 @@ tbody th { max-width: 180px; overflow-wrap: anywhere; }
 
 @keyframes enter { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
 @keyframes blink { 50% { opacity: .2; } }
-@keyframes fall { from { transform: translateY(-30%); } to { transform: translateY(30%); } }
 
 @media (max-width: 1000px) {
-  .home-layout, .final-grid { grid-template-columns: 1fr; gap: 40px; }
+  .final-grid { grid-template-columns: 1fr; gap: 40px; }
   .question-layout { grid-template-columns: minmax(0, 1fr) 170px; gap: 35px; }
   .stage-intro { grid-template-columns: 1fr 160px; gap: 25px; }
   .round-intro .giant-number { font-size: 135px; }
@@ -297,3 +288,12 @@ tbody th { max-width: 180px; overflow-wrap: anywhere; }
   .growth-print .ln { border-bottom: 1px solid #333; height: 9mm; }
   @page { size: A4; margin: 10mm; }
 }
+
+/* 0/1 rain background */
+#rain-bg { position: fixed; inset: 0; z-index: 0; pointer-events: none; opacity: .75; transition: opacity .6s; }
+body:not([data-stage="home"]) #rain-bg { opacity: .28; }
+header, .round-nav, .main { position: relative; z-index: 1; }
+.home-main h1, .home-sub { text-shadow: 0 0 40px var(--bg), 0 0 12px var(--bg); }
+@media print { #rain-bg { display: none; } }
+.home-main { position: relative; }
+.home-main::before { content: ''; position: absolute; inset: -40px -120px -40px -80px; background: radial-gradient(ellipse at 35% 50%, rgba(8, 13, 22, .88), rgba(8, 13, 22, 0) 72%); z-index: -1; pointer-events: none; }

@@ -133,6 +133,60 @@ function visual(kind, mini = false) {
 }
 const code = q => q.code ? `<pre><code>${esc(q.code)}</code></pre>` : '';
 
+/* ---------- background: 0/1 rain ---------- */
+function startRain() {
+  const canvas = document.createElement('canvas');
+  canvas.id = 'rain-bg';
+  canvas.setAttribute('aria-hidden', 'true');
+  document.body.prepend(canvas);
+  const ctx = canvas.getContext('2d');
+  if (!ctx) return;
+  const reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const CW = 22, CH = 26, TRAIL = 16;
+  let cols = 0, rows = 0, bits = [], heads = [], speeds = [], timer = 0;
+
+  function resize() {
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    canvas.width = innerWidth * dpr; canvas.height = innerHeight * dpr;
+    canvas.style.width = innerWidth + 'px'; canvas.style.height = innerHeight + 'px';
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.font = '500 18px "IBM Plex Mono", Consolas, monospace';
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    cols = Math.ceil(innerWidth / CW); rows = Math.ceil(innerHeight / CH);
+    bits = Array.from({ length: cols * rows }, () => rnd(2));
+    heads = Array.from({ length: cols }, () => rnd(rows + TRAIL));
+    speeds = Array.from({ length: cols }, () => .25 + rnd(60) / 100);
+    draw();
+  }
+  function draw() {
+    ctx.clearRect(0, 0, innerWidth, innerHeight);
+    const span = rows + TRAIL;
+    for (let c = 0; c < cols; c++) {
+      const x = c * CW + CW / 2;
+      for (let r = 0; r < rows; r++) {
+        const d = (heads[c] - r + span) % span;
+        const alpha = d < TRAIL ? .07 + .75 * (1 - d / TRAIL) ** 2 : .07;
+        ctx.fillStyle = d < 1 ? 'rgba(235,255,200,.95)' : `rgba(198,255,99,${alpha})`;
+        ctx.fillText(bits[r * cols + c], x, r * CH + CH / 2);
+      }
+    }
+  }
+  function tick() {
+    for (let c = 0; c < cols; c++) {
+      const before = Math.floor(heads[c]);
+      heads[c] = (heads[c] + speeds[c]) % (rows + TRAIL);
+      const after = Math.floor(heads[c]);
+      if (after !== before && after < rows) bits[after * cols + c] ^= 1;
+    }
+    for (let i = 0; i < cols * rows * .004; i++) bits[rnd(cols * rows)] ^= 1;
+    draw();
+  }
+  function loop() { clearInterval(timer); if (!reduce && !document.hidden) timer = setInterval(tick, 55); }
+  addEventListener('resize', () => { resize(); });
+  document.addEventListener('visibilitychange', loop);
+  resize(); loop();
+}
+
 /* ---------- views ---------- */
 function timer() {
   return `<div class="timer-widget"><div class="timer-read" id="countdown" role="timer">${fmt(left())}</div><div>${button('timer', s.running ? 'Кідірту' : 'Іске қосу', s.running ? 'Пауза' : 'Запустить', 'timer-btn')}${button('resetTimer', 'Қайта', 'Сброс', 'timer-btn')}</div><p id="timer-status" aria-live="polite">${left() === 0 ? txt('Уақыт бітті', 'Время вышло') : txt('Уақыт', 'Время')}</p></div>`;
@@ -143,14 +197,9 @@ function header() {
 function nav() {
   return `<nav class="round-nav" aria-label="${txt('Раундтар', 'Раунды')}">${G.rounds.map((r, i) => `<button data-a="jump" data-i="${i}" class="${s.r === i && !['home', 'mixer', 'rules'].includes(s.stage) ? 'active' : ''}"><span>0${i + 1}</span>${esc(r.name[s.lang === 'ru' ? 'ru' : 'kk'])}</button>`).join('')}</nav>`;
 }
-function rainHtml() {
-  let seed = 11;
-  const nx = () => { seed = (seed * 1103515245 + 12345) % 2147483648; return seed >>> 8; };
-  return Array.from({ length: 12 }, () => `<span style="--o:${(.2 + (nx() % 50) / 100).toFixed(2)};--d:${18 + nx() % 14}s;margin-top:-${nx() % 120}px">${Array.from({ length: 24 }, () => nx() % 2).join('\n')}</span>`).join('');
-}
 function home() {
   const started = s.elapsed > 0 || s.resume;
-  return `<div class="home-layout"><section class="home-main"><h1>CODE<br><em>MATRIX</em><span class="title-dot">_</span></h1><p class="home-sub">${tr(B('Информатикадан білімдеріңізді тексереміз.', 'Проверим ваши знания по информатике.'))}</p><div class="home-meta"><div><strong>06</strong><span>${txt('раунд', 'раундов')}</span></div><div><strong>50</strong><span>${txt('ұпай', 'баллов')}</span></div><div><strong>90<span>${txt('мин', 'мин')}</span></strong><span>${txt('үзілістермен', 'с перерывами')}</span></div></div><div class="home-start">${button('start', started ? 'Жалғастыру' : 'Ойынды бастау', started ? 'Продолжить' : 'Начать игру', 'primary large')}${button('toMixer', 'Командалар жеребесі', 'Жеребьёвка команд', 'large')}${button('agenda', '90 минут жоспары', 'План на 90 минут', 'subtle large')}</div></section><aside class="rain-panel" aria-hidden="true"><div class="rain">${rainHtml()}</div><div class="rain-caption"><p class="mono">${txt('БІЛІМ ТЕСТІ', 'ТЕСТ ЗНАНИЙ')}</p><strong>${txt('Кодтағы бір қате — бәрі өзгереді.', 'Одна ошибка в коде — и всё меняется.')}</strong></div></aside></div>`;
+  return `<div class="home-layout"><section class="home-main"><h1>CODE<br><em>MATRIX</em><span class="title-dot">_</span></h1><p class="home-sub">${tr(B('Информатикадан білімдеріңізді тексереміз.', 'Проверим ваши знания по информатике.'))}</p><div class="home-meta"><div><strong>06</strong><span>${txt('раунд', 'раундов')}</span></div><div><strong>50</strong><span>${txt('ұпай', 'баллов')}</span></div><div><strong>90<span>${txt('мин', 'мин')}</span></strong><span>${txt('үзілістермен', 'с перерывами')}</span></div></div><div class="home-start">${button('start', started ? 'Жалғастыру' : 'Ойынды бастау', started ? 'Продолжить' : 'Начать игру', 'primary large')}${button('toMixer', 'Командалар жеребесі', 'Жеребьёвка команд', 'large')}${button('agenda', '90 минут жоспары', 'План на 90 минут', 'subtle large')}</div></section></div>`;
 }
 function mixer() {
   const revealed = s.mixed ? s.revealed : 0;
@@ -264,6 +313,7 @@ function help() {
 /* ---------- render ---------- */
 function render() {
   document.documentElement.lang = s.lang === 'ru' ? 'ru' : 'kk';
+  document.body.dataset.stage = s.stage;
   root.innerHTML = header() + nav() + `<main class="main stage-${s.stage}" id="main">${body()}</main>` + (s.stage !== 'home' ? footer() : '') + (storageFailed ? `<p class="storage-warning">${txt('Сақтау мүмкін емес. Бетті жаңартпаңыз.', 'Сохранение недоступно. Не обновляйте страницу.')}</p>` : '');
   if (modal) {
     const content = { scores: scoreDialog, agenda, help, prep: prepDialog }[modal]();
@@ -434,5 +484,6 @@ setInterval(() => {
   if (s.eventRunning || s.running) save();
 }, 1000);
 window.addEventListener('beforeunload', save);
+startRain();
 render();
 })();
