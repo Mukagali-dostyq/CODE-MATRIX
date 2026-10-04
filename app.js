@@ -3,11 +3,11 @@
 
 const G = window.GAME;
 const root = document.getElementById('app');
-const KEY = 'code-matrix-v1';
-const STAGES = ['home', 'mixer', 'rules', 'round', 'question', 'review', 'submit', 'answer', 'roundEnd', 'break', 'final', 'tie', 'tieAnswer'];
+const KEY = 'code-matrix-v2';
+const STAGES = ['home', 'mixer', 'rules', 'round', 'question', 'review', 'submit', 'answer', 'roundEnd', 'break', 'bet', 'bankQ', 'bankAnswer', 'final', 'tie', 'tieAnswer'];
 const ROUNDS_WITH_BREAK = [1, 3];
 
-const zeros = () => [0, 0, 0, 0, 0, 0];
+const zeros = () => [0, 0, 0, 0, 0, 0, 0];
 const makeTeams = n => Array.from({ length: n }, (_, i) => ({ name: G.teamNames[i] || `Команда ${i + 1}`, scores: zeros(), members: [] }));
 const initial = () => ({
   lang: 'both', stage: 'home', r: 0, q: 0, hints: 1,
@@ -20,7 +20,7 @@ let s = initial();
 try {
   const old = JSON.parse(localStorage.getItem(KEY));
   if (old && ['kk', 'ru', 'both'].includes(old.lang) && Array.isArray(old.teams) && old.teams.length >= 2 && old.teams.length <= 10
-    && old.teams.every(t => typeof t.name === 'string' && t.scores?.length === 6 && Array.isArray(t.members))
+    && old.teams.every(t => typeof t.name === 'string' && t.scores?.length === 7 && Array.isArray(t.members))
     && old.r >= 0 && old.r < 6 && old.q >= 0 && old.q < G.rounds[old.r].questions.length && STAGES.includes(old.stage)) s = { ...s, ...old };
 } catch { /* start fresh */ }
 
@@ -38,7 +38,10 @@ const left = () => s.running ? Math.max(0, Math.ceil((s.deadline - Date.now()) /
 const elapsed = () => s.elapsed + (s.eventRunning ? (Date.now() - s.eventAt) / 1000 : 0);
 const fmt = n => { n = Math.max(0, Math.floor(n)); return `${String(Math.floor(n / 60)).padStart(2, '0')}:${String(n % 60).padStart(2, '0')}`; };
 const total = t => t.scores.reduce((a, b) => a + b, 0);
-const roundMax = r => r.points * r.questions.length;
+const pointsOf = (r, q) => q.points || r.points;
+const roundMax = r => r.questions.reduce((sum, q) => sum + pointsOf(r, q), 0);
+const limits = r => r === 6 ? { min: G.bank.min, max: G.bank.max, step: 1 } : { min: 0, max: roundMax(G.rounds[r]), step: G.rounds[r].step };
+const bank = () => G.rounds[5].bankQuestion;
 
 function save() { try { localStorage.setItem(KEY, JSON.stringify(s)); } catch { storageFailed = true; } }
 
@@ -79,12 +82,13 @@ function eventToggle() {
   else { s.eventAt = Date.now(); s.eventRunning = true; }
   save(); render();
 }
-const stageDuration = () => s.stage === 'question' ? (question().time || round().time) : s.stage === 'break' || s.stage === 'rules' ? 300 : s.stage === 'submit' ? 10 : s.stage === 'tie' ? 30 : 0;
+const stageDuration = () => s.stage === 'question' ? (question().time || round().time) : s.stage === 'break' || s.stage === 'rules' ? 300 : s.stage === 'submit' ? 10 : s.stage === 'tie' ? 30 : s.stage === 'bet' ? 30 : s.stage === 'bankQ' ? bank().time : 0;
 function change(stage, { r = s.r, q = 0 } = {}) {
   stopMusic();
   s.stage = stage; s.r = r; s.q = q; s.hints = 1;
   timerReset(stageDuration());
   if (stage === 'submit') { s.deadline = Date.now() + 10000; s.running = true; }
+  if (stage === 'question' && question().rush) { s.deadline = Date.now() + s.remaining * 1000; s.running = true; sting(); }
   save(); render();
   window.scrollTo({ top: 0, behavior: 'instant' });
 }
@@ -117,17 +121,48 @@ function mix() {
 }
 
 /* ---------- visuals ---------- */
-const svg = (inner, label) => `<svg viewBox="0 0 640 270" class="diagram" role="img" aria-label="${esc(label)}">${inner}</svg>`;
-const line = (x1, y1, x2, y2) => `<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" stroke="currentColor" stroke-width="3"/>`;
+const svg = (inner, label, box = '0 0 640 270', cls = '') => `<svg viewBox="${box}" class="diagram ${cls}" role="img" aria-label="${esc(label)}">${inner}</svg>`;
+const line = (x1, y1, x2, y2, w = 3) => `<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" stroke="currentColor" stroke-width="${w}"/>`;
+const arrow = (x1, y1, x2, y2) => `<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" stroke="currentColor" stroke-width="3" marker-end="url(#ah)"/>`;
 const node = (x, y, t) => `<circle cx="${x}" cy="${y}" r="28" fill="#172338" stroke="currentColor" stroke-width="2"/><text x="${x}" y="${y + 8}" text-anchor="middle" fill="#f4f6fd" font-size="23">${t}</text>`;
-function visual(kind, mini = false) {
+const box = (x, y, w, h, t, r = 4) => `<rect x="${x}" y="${y}" width="${w}" height="${h}" rx="${r}" fill="#172338" stroke="currentColor" stroke-width="2"/><text x="${x + w / 2}" y="${y + h / 2 + 7}" text-anchor="middle" fill="#f4f6fd" font-size="20">${t}</text>`;
+const diamond = (cx, text, cy) => `<polygon points="${cx},${cy - 36} ${cx + 110},${cy} ${cx},${cy + 36} ${cx - 110},${cy}" fill="#172338" stroke="currentColor" stroke-width="2"/><text x="${cx}" y="${cy + 7}" text-anchor="middle" fill="#f4f6fd" font-size="20">${text}</text>`;
+const tag = (x, y, t) => `<text x="${x}" y="${y}" fill="#c6ff63" font-size="17">${t}</text>`;
+const lcg = seed => { let x = seed; return () => (x = (x * 1103515245 + 12345) % 2147483648) / 2147483648; };
+function comparePuzzle(p) {
+  const rand = lcg(p.seed), left = [];
+  for (let i = 0; i < p.cols * p.rows; i++) left.push(String.fromCharCode(65 + Math.floor(rand() * 26)));
+  const right = [...left];
+  p.positions.forEach((pos, i) => {
+    const ch = p.word[i];
+    if (left[pos] === ch) left[pos] = String.fromCharCode(65 + (ch.charCodeAt(0) - 64) % 26);
+    right[pos] = ch;
+  });
+  return { left, right };
+}
+const gridPic = (cells, cols) => `<div class="grid-pic" style="grid-template-columns:repeat(${cols},1fr)">${cells.map(c => `<span>${c}</span>`).join('')}</div>`;
+const soundWords = q => q.sound.map(b => b ? txt('ұзын', 'длинный') : txt('қысқа', 'короткий')).join(' / ');
+function visual(kind, mini = false, q = question()) {
   switch (kind) {
-    case 'binary': return '<div class="bits" aria-label="10110">' + [1, 0, 1, 1, 0].map((n, i) => `<span><b>${n}</b><small>2<sup>${4 - i}</sup></small></span>`).join('') + '</div>';
-    case 'graph': return svg(line(130, 70, 320, 40) + line(320, 40, 510, 90) + line(510, 90, 380, 220) + line(380, 220, 130, 70) + line(130, 70, 150, 220) + line(150, 220, 380, 220) + [[130, 70, 'A'], [320, 40, 'B'], [510, 90, 'C'], [380, 220, 'D'], [150, 220, 'E']].map(n => node(...n)).join(''), txt('A–E төбелері және олардың қырлары', 'Вершины A–E и соединяющие их рёбра'));
-    case 'stack': return '<div class="stack-demo"><div class="stack-ops">push(30)<br>pop() = 30</div><div class="stack"><div class="top">30</div><div>20</div><div>10</div></div></div>';
-    case 'search': return '<div class="search-demo">' + [[2, 5, 8, 11, 14, 17, 20, 23], [14, 17, 20, 23], [17]].map((ar, i) => `<div><small>0${i + 1}</small>${ar.map(n => `<span class="${n === 17 ? 'target' : ''}">${n}</span>`).join('')}</div>`).join('') + '</div>';
-    case 'flow': return svg('<path d="M320 20 L415 70 L320 120 L225 70 Z" fill="#172338" stroke="currentColor" stroke-width="2"/><text x="320" y="77" text-anchor="middle" fill="white" font-size="22">x &gt; 5?</text>' + line(225, 70, 130, 70) + line(130, 70, 130, 160) + line(415, 70, 510, 70) + line(510, 70, 510, 160) + `<text x="135" y="56" fill="white" font-size="18">${txt('Иә', 'Да')}</text><text x="450" y="56" fill="white" font-size="18">${txt('Жоқ', 'Нет')}</text>` + '<rect x="60" y="160" width="140" height="50" fill="#172338" stroke="currentColor"/><rect x="440" y="160" width="140" height="50" fill="#172338" stroke="currentColor"/><text x="130" y="192" text-anchor="middle" fill="white" font-size="22">y = 2 × x</text><text x="510" y="192" text-anchor="middle" fill="white" font-size="22">y = x + 2</text>' + line(130, 210, 130, 240) + line(510, 210, 510, 240) + line(130, 240, 510, 240) + `<text x="320" y="264" text-anchor="middle" fill="white" font-size="18">${txt('y мәнін шығару', 'Вывести y')}</text>`, txt('x > 5 болса y = 2 × x, әйтпесе y = x + 2', 'Если x > 5, то y = 2 × x, иначе y = x + 2'));
-    case 'sound': return `<div class="sound-task"><div class="waveform" aria-hidden="true">${Array.from({ length: 31 }, (_, i) => `<i style="height:${15 + ((i * 29) % 65)}px"></i>`).join('')}</div>${mini ? `<p>${txt('Қысқа / ұзын / қысқа / ұзын', 'Короткий / длинный / короткий / длинный')}</p>` : button('playSound', 'Сигналды тыңдау', 'Прослушать сигнал', 'primary') + button('fallback', 'Дыбыссыз нұсқа', 'Вариант без звука', 'subtle')}<p id="sound-fallback" hidden>${txt('Қысқа / ұзын / қысқа / ұзын', 'Короткий / длинный / короткий / длинный')}</p></div>`;
+    case 'compare': {
+      const p = q.puzzle, { left, right } = comparePuzzle(p);
+      return `<div class="compare"><figure><figcaption>1</figcaption>${gridPic(left, p.cols)}</figure><figure><figcaption>2</figcaption>${gridPic(right, p.cols)}</figure></div>`;
+    }
+    case 'path': {
+      const g = G.graph;
+      const edges = g.edges.map(([a, b, w]) => { const [x1, y1] = g.nodes[a], [x2, y2] = g.nodes[b]; return line(x1, y1, x2, y2, 2) + `<text x="${(x1 + x2) / 2}" y="${(y1 + y2) / 2 + 5}" text-anchor="middle" fill="#c6ff63" stroke="#080d16" stroke-width="5" paint-order="stroke" font-size="17">${w}</text>`; }).join('');
+      return svg(edges + Object.entries(g.nodes).map(([k, [x, y]]) => node(x, y, k)).join(''), txt('Салмақты граф: S және T төбелері', 'Взвешенный граф с вершинами S и T'));
+    }
+    case 'tree': {
+      const n = { R: [320, 40], A: [190, 120], X: [450, 120], M: [120, 205], T: [260, 205], I: [390, 205] };
+      const e = [['R', 'A'], ['R', 'X'], ['A', 'M'], ['A', 'T'], ['X', 'I']];
+      return svg(e.map(([a, b]) => line(...n[a], ...n[b])).join('') + Object.entries(n).map(([k, [x, y]]) => node(x, y, k)).join(''), txt('Әріптері бар екілік ағаш', 'Двоичное дерево с буквами'));
+    }
+    case 'flow': {
+      const defs = '<defs><marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="currentColor"/></marker></defs>';
+      return svg(defs + box(220, 10, 200, 40, 'n = 7, k = 0', 20) + arrow(320, 50, 320, 79) + diamond(320, 'n = 1 ?', 115) + arrow(430, 115, 500, 115) + box(500, 95, 120, 40, txt('k шығару', 'вывести k')) + tag(446, 100, txt('Иә', 'Да')) + arrow(320, 151, 320, 179) + tag(342, 172, txt('Жоқ', 'Нет')) + diamond(320, txt('n жұп?', 'n чётное?'), 215) + arrow(210, 215, 160, 215) + box(40, 195, 120, 40, 'n = n / 2') + tag(168, 200, txt('Иә', 'Да')) + arrow(430, 215, 480, 215) + box(480, 195, 130, 40, 'n = 3n + 1') + tag(438, 200, txt('Жоқ', 'Нет')) + line(100, 235, 100, 295) + arrow(100, 295, 260, 295) + line(545, 235, 545, 295) + arrow(545, 295, 380, 295) + box(260, 275, 120, 40, 'k = k + 1') + line(320, 315, 320, 334) + line(320, 334, 12, 334) + line(12, 334, 12, 115) + arrow(12, 115, 210, 115), txt('Блок-схема: n = 7 басталады, n = 1 болғанша қайталанады', 'Блок-схема: цикл с n = 7, пока n не станет равно 1'), '0 0 640 345', 'tall');
+    }
+    case 'sound': return `<div class="sound-task"><div class="waveform" aria-hidden="true">${Array.from({ length: 31 }, (_, i) => `<i style="height:${15 + ((i * 29) % 65)}px"></i>`).join('')}</div>${mini ? `<p>${soundWords(q)}</p>` : button('playSound', 'Сигналды тыңдау', 'Прослушать сигнал', 'primary') + button('fallback', 'Дыбыссыз нұсқа', 'Вариант без звука', 'subtle')}<p id="sound-fallback" hidden>${soundWords(q)}</p></div>`;
     default: return '';
   }
 }
@@ -199,7 +234,7 @@ function nav() {
 }
 function home() {
   const started = s.elapsed > 0 || s.resume;
-  return `<div class="home-layout"><section class="home-main"><h1>CODE<br><em>MATRIX</em><span class="title-dot">_</span></h1><p class="home-sub">${tr(B('Информатикадан білімдеріңізді тексереміз.', 'Проверим ваши знания по информатике.'))}</p><div class="home-meta"><div><strong>06</strong><span>${txt('раунд', 'раундов')}</span></div><div><strong>50</strong><span>${txt('ұпай', 'баллов')}</span></div><div><strong>90<span>${txt('мин', 'мин')}</span></strong><span>${txt('үзілістермен', 'с перерывами')}</span></div></div><div class="home-start">${button('start', started ? 'Жалғастыру' : 'Ойынды бастау', started ? 'Продолжить' : 'Начать игру', 'primary large')}${button('toMixer', 'Командалар жеребесі', 'Жеребьёвка команд', 'large')}${button('agenda', '90 минут жоспары', 'План на 90 минут', 'subtle large')}</div></section></div>`;
+  return `<div class="home-layout"><section class="home-main"><h1>CODE<br><em>MATRIX</em><span class="title-dot">_</span></h1><p class="home-sub">${tr(B('Информатикадан білімдеріңізді тексереміз.', 'Проверим ваши знания по информатике.'))}</p><div class="home-meta"><div><strong>06</strong><span>${txt('раунд', 'раундов')}</span></div><div><strong>48</strong><span>${txt('ұпай', 'баллов')}</span></div><div><strong>×2</strong><span>${txt('ва-банк', 'ва-банк')}</span></div><div><strong>90<span>${txt('мин', 'мин')}</span></strong><span>${txt('үзілістермен', 'с перерывами')}</span></div></div><div class="home-start">${button('start', started ? 'Жалғастыру' : 'Ойынды бастау', started ? 'Продолжить' : 'Начать игру', 'primary large')}${button('toMixer', 'Командалар жеребесі', 'Жеребьёвка команд', 'large')}${button('agenda', '90 минут жоспары', 'План на 90 минут', 'subtle large')}</div></section></div>`;
 }
 function mixer() {
   const revealed = s.mixed ? s.revealed : 0;
@@ -216,15 +251,16 @@ function rules() {
   const items = [
     B('Командада 3–5 адам. Телефондар үзіліске дейін қолданылмайды.', 'В команде 3–5 человек. Телефоны используются только на перерывах.'),
     B('Әр раунд: сұрақтар, қайталау, бланкілерді тапсыру, жауаптар.', 'Каждый раунд: задания, повтор, сдача бланков, ответы.'),
-    B('Барлығы 50 ұпай. Қате жауапқа айып жоқ.', 'Всего 50 баллов. За неверный ответ штрафов нет.'),
+    B('Барлығы 48 ұпай және финалда ва-банк. Ва-банктен басқа қате жауапқа айып жоқ.', 'Всего 48 баллов и ва-банк в финале. Штрафов нет, кроме ва-банка.'),
     B('2 және 4-раундтан кейін 5 минут үзіліс.', 'После раундов 2 и 4 — перерывы по 5 минут.')
   ];
   return `<div class="stage-intro"><div><p class="eyebrow">BRIEFING / 05:00</p><h1>${tr(B('Ойын ережелері', 'Правила игры'))}</h1><div class="rules-list">${items.map((b, i) => `<p><span>0${i + 1}</span>${tr(b)}</p>`).join('')}</div></div>${timer()}</div>`;
 }
 function roundIntro() {
   const r = round();
-  const points = r.ladder ? '3 / 2 / 1' : r.points;
-  return `<div class="stage-intro round-intro"><div><p class="eyebrow">ROUND ${String(s.r + 1).padStart(2, '0')} / 06</p><h1>${tr(r.name)}</h1><p class="lead">${tr(r.sub)}</p><div class="round-facts"><span>${r.questions.length} ${txt('тапсырма', 'заданий')}</span><span>${r.minutes} ${txt('минут', 'минут')}</span><span>${points} ${txt('ұпай / жауап', 'балл(а) / ответ')}</span></div><p class="rule-copy">${tr(r.rule)}</p></div><div class="giant-number" aria-hidden="true">${String(s.r + 1).padStart(2, '0')}</div></div>`;
+  const points = r.ladder ? '3 / 2 / 1' : r.questions.some(q => q.points) ? `${r.points}–${Math.max(...r.questions.map(q => pointsOf(r, q)))}` : r.points;
+  const hook = ['kk', 'ru'].filter(l => s.lang === 'both' || s.lang === l).map(l => `<p class="hook" lang="${l}" style="--n:${r.hook[l].length}">${esc(r.hook[l])}</p>`).join('');
+  return `<div class="stage-intro round-intro"><div><p class="eyebrow">ROUND ${String(s.r + 1).padStart(2, '0')} / 06</p><div class="hooks">${hook}</div><h1>${tr(r.name)}</h1><p class="lead">${tr(r.sub)}</p><div class="round-facts"><span>${r.questions.length} ${txt('тапсырма', 'заданий')}${r.bankQuestion ? txt(' + ва-банк', ' + ва-банк') : ''}</span><span>${r.minutes} ${txt('минут', 'минут')}</span><span>${points} ${txt('ұпай / жауап', 'балл(а) / ответ')}</span></div><p class="rule-copy">${tr(r.rule)}</p></div><div class="giant-number" aria-hidden="true">${String(s.r + 1).padStart(2, '0')}</div></div>`;
 }
 function questionView() {
   const q = question(), r = round();
@@ -234,17 +270,18 @@ function questionView() {
   const aside = q.hints
     ? `<div class="ladder">${txt('Қазір жауап берсе', 'Если ответить сейчас')}<b>+${4 - s.hints}</b></div>`
     : `<p class="write-note">${tr(B('Жауапты бланкіге жазыңыз', 'Запишите ответ в бланк'))}</p>`;
-  return `<div class="question-layout"><section><p class="eyebrow">${label}</p><h1 class="question-title">${tr(q.q)}</h1>${q.detail ? `<p class="detail">${tr(q.detail)}</p>` : ''}${code(q)}${cipher}${hints}${q.visual ? `<div class="visual">${visual(q.visual)}</div>` : ''}</section><aside>${timer()}${aside}</aside></div>`;
+  const rush = q.rush ? `<div class="rush-banner"><b>${txt('АСЫҒЫС', 'СПЕШКА')}</b><span>${q.time} ${txt('секунд', 'секунд')} · ${q.points} ${txt('ұпай', 'балла')}</span></div>` : '';
+  return `<div class="question-layout"><section>${rush}<p class="eyebrow">${label}</p><h1 class="question-title${q.q.ru.length > 90 ? ' long' : ''}">${tr(q.q)}</h1>${q.detail ? `<p class="detail">${tr(q.detail)}</p>` : ''}${code(q)}${cipher}${hints}${q.visual ? `<div class="visual">${visual(q.visual, false, q)}</div>` : ''}</section><aside>${timer()}${aside}</aside></div>`;
 }
 function review() {
-  return `<p class="eyebrow">RECAP</p><h1 class="medium-title">${tr(B('Жауаптарды тексеріңіз', 'Проверьте свои ответы'))}</h1><div class="review-list">${round().questions.map((q, i) => `<article><b class="review-number">0${i + 1}</b><div><h2>${tr(q.q)}</h2>${q.detail ? `<p>${tr(q.detail)}</p>` : ''}${code(q)}${q.hints ? `<p>${q.hints.map(h => tr(h)).join('<br>')}</p>` : ''}${q.visual ? `<div class="mini-visual">${visual(q.visual, true)}</div>` : ''}</div></article>`).join('')}</div>`;
+  return `<p class="eyebrow">RECAP</p><h1 class="medium-title">${tr(B('Жауаптарды тексеріңіз', 'Проверьте свои ответы'))}</h1><div class="review-list">${round().questions.map((q, i) => `<article><b class="review-number">0${i + 1}</b><div><h2>${tr(q.q)}</h2>${q.detail ? `<p>${tr(q.detail)}</p>` : ''}${code(q)}${q.hints ? `<p>${q.hints.map(h => tr(h)).join('<br>')}</p>` : ''}${q.visual ? `<div class="mini-visual">${visual(q.visual, true, q)}</div>` : ''}</div></article>`).join('')}</div>`;
 }
 function submit() {
   return `<div class="center-stage"><p class="eyebrow">PENS DOWN</p><h1>${tr(B('Бланкілерді тапсырыңыз', 'Сдайте бланки'))}</h1><p class="lead">${tr(B('Жүргізуші бланкілерді жинаған соң жауаптарды ашады.', 'Ведущий откроет ответы после сбора бланков.'))}</p>${timer()}</div>`;
 }
 function answer() {
   const q = question(), r = round();
-  const pts = r.ladder ? `+3 / +2 / +1 ${txt('ұпай', 'балл(а)')}` : `+${r.points} ${txt('ұпай', 'балл(а)')}`;
+  const pts = r.ladder ? `+3 / +2 / +1 ${txt('ұпай', 'балл(а)')}` : `+${pointsOf(r, q)} ${txt('ұпай', 'балл(а)')}`;
   return `<div class="answer-screen"><p class="eyebrow">${txt('ЖАУАП', 'ОТВЕТ')} 0${s.q + 1} / 0${r.questions.length}</p><p class="answer-question">${tr(q.q)}</p><h1 class="answer-value">${tr(q.answer)}</h1><p class="answer-explain">${tr(q.explain)}</p><span class="points">${pts}</span></div>`;
 }
 const ranking = () => s.teams.map(t => ({ ...t, total: total(t) })).sort((a, b) => b.total - a.total);
@@ -266,10 +303,22 @@ function growthCard() {
 function final() {
   return `<div class="result-head"><div><p class="eyebrow">GAME COMPLETE</p><h1 class="medium-title">${tr(B('Ойын қорытындысы', 'Итоги игры'))}</h1></div>${button('scores', 'Ұпайларды тексеру', 'Проверить баллы', 'primary')}</div><div class="final-grid"><div>${leaderboard()}<p class="lead">${tr(B('Қатысқандарыңызға рақмет!', 'Спасибо за игру!'))}</p><div class="inline-actions">${button('printGrowth', 'Өсу карталарын басып шығару', 'Распечатать карты роста', 'primary')}${button('tie', 'Тең ұпайға қосымша сұрақ', 'Вопрос при равенстве баллов', 'subtle')}${button('new', 'Жаңа ойын', 'Новая игра', 'subtle')}</div></div>${growthCard()}</div>`;
 }
+function betView() {
+  const b = bank();
+  return `<div class="center-stage bank"><p class="eyebrow">VA-BANQUE</p><h1>${tr(B('Ва-банк', 'Ва-банк'))}</h1><p class="lead bank-topic">${txt('Тақырып', 'Тема')}: ${tr(b.topic)}</p><p class="lead">${tr(B('Ставканы бланкіге жазыңыз: 0-ден 10 ұпайға дейін, бірақ өз ұпайыңыздан артық емес. Дұрыс жауап ставканың екі еселенген мөлшерін әкеледі, қате жауап ставканы алып кетеді.', 'Запишите ставку на бланке: от 0 до 10 баллов, но не больше ваших баллов. Верный ответ приносит удвоенную ставку, неверный отнимает ставку.'))}</p>${timer()}</div>`;
+}
+function bankQView() {
+  const b = bank();
+  return `<div class="question-layout"><section><div class="rush-banner bank-banner"><b>${txt('ВА-БАНК', 'ВА-БАНК')}</b><span>${tr(b.topic)}</span></div><h1 class="question-title">${tr(b.q)}</h1></section><aside>${timer()}<p class="write-note">${tr(B('Жауапты бланкіге жазыңыз', 'Запишите ответ в бланк'))}</p></aside></div>`;
+}
+function bankAnswerView() {
+  const b = bank();
+  return `<div class="answer-screen"><p class="eyebrow">VA-BANQUE · ${txt('ЖАУАП', 'ОТВЕТ')}</p><p class="answer-question">${tr(b.q)}</p><h1 class="answer-value">${tr(b.answer)}</h1><p class="answer-explain">${tr(b.explain)}</p><span class="points">${txt('Дұрыс: +2 × ставка · қате: − ставка', 'Верно: +2 × ставка · неверно: −ставка')}</span></div>`;
+}
 function tie() { return `<div class="question-layout"><section><p class="eyebrow">TIEBREAK</p><h1 class="question-title">${tr(G.tie.q)}</h1><p class="detail">${tr(G.tie.explain)}</p></section>${timer()}</div>`; }
 function body() {
   return ({
-    home, mixer, rules, round: roundIntro, question: questionView, review, submit, answer, roundEnd: endRound, break: breakView, final, tie,
+    home, mixer, rules, round: roundIntro, question: questionView, review, submit, answer, bet: betView, bankQ: bankQView, bankAnswer: bankAnswerView, roundEnd: endRound, break: breakView, final, tie,
     tieAnswer: () => `<div class="answer-screen"><p class="eyebrow">TIEBREAK</p><h1 class="answer-value">${tr(G.tie.answer)}</h1></div>`
   }[s.stage] || home)();
 }
@@ -281,7 +330,10 @@ function nextLabel() {
     question: s.q === round().questions.length - 1 ? B('Қайталау', 'Повтор заданий') : B('Келесі тапсырма', 'Следующее задание'),
     review: B('Бланкілерді жинау', 'Собрать бланки'),
     submit: B('Бланкілер жиналды · жауаптар', 'Бланки собраны · к ответам'),
-    answer: s.q === round().questions.length - 1 ? B('Ұпайларды санау', 'Подсчёт баллов') : B('Келесі жауап', 'Следующий ответ'),
+    answer: s.q < round().questions.length - 1 ? B('Келесі жауап', 'Следующий ответ') : s.r === 5 ? B('Ва-банк', 'Ва-банк') : B('Ұпайларды санау', 'Подсчёт баллов'),
+    bet: B('Сұрақты көрсету', 'Показать вопрос'),
+    bankQ: B('Жауапты ашу', 'Открыть ответ'),
+    bankAnswer: B('Ұпайларды санау', 'Подсчёт баллов'),
     roundEnd: ROUNDS_WITH_BREAK.includes(s.r) ? B('5 минут үзіліс', 'Перерыв 5 минут') : s.r === 5 ? B('Қорытынды', 'Итоги') : B('Келесі раунд', 'Следующий раунд'),
     break: B('Ойынды жалғастыру', 'Продолжить игру'),
     tie: B('Жауапты ашу', 'Открыть ответ'),
@@ -295,7 +347,7 @@ function footer() {
 
 /* ---------- dialogs ---------- */
 function scoreDialog() {
-  return `<h2>${txt('Ұпайлар кестесі', 'Таблица баллов')}</h2><p class="muted">${tr(B('Әр раундтың жиынтық ұпайын енгізіңіз. Шектеулер автоматты тексеріледі.', 'Введите сумму за каждый раунд. Допустимые значения проверяются автоматически.'))}</p><div class="table-wrap"><table><thead><tr><th>${txt('Команда', 'Команда')}</th>${G.rounds.map((r, i) => `<th title="${esc(r.name[s.lang === 'ru' ? 'ru' : 'kk'])}">R${i + 1}<small>max ${roundMax(r)}</small></th>`).join('')}<th>Σ</th></tr></thead><tbody>${s.teams.map((t, i) => `<tr><th>${esc(t.name)}</th>${t.scores.map((v, r) => `<td><input type="number" min="0" max="${roundMax(G.rounds[r])}" step="${G.rounds[r].step}" value="${v}" data-score="${i},${r}" aria-label="${esc(t.name)}, ${txt('раунд', 'раунд')} ${r + 1}"></td>`).join('')}<td id="sum-${i}">${total(t)}</td></tr>`).join('')}</tbody></table></div><p class="small muted">${txt('3-раунд: әр жауап 1–3 ұпай. 4–6 раунд: 0, 3, 6, 9.', 'Раунд 3: каждый ответ 1–3 балла. Раунды 4–6: 0, 3, 6, 9.')}</p>`;
+  return `<h2>${txt('Ұпайлар кестесі', 'Таблица баллов')}</h2><p class="muted">${tr(B('Әр раундтың жиынтық ұпайын енгізіңіз. Шектеулер автоматты тексеріледі.', 'Введите сумму за каждый раунд. Допустимые значения проверяются автоматически.'))}</p><div class="table-wrap"><table><thead><tr><th>${txt('Команда', 'Команда')}</th>${G.rounds.map((r, i) => `<th title="${esc(r.name[s.lang === 'ru' ? 'ru' : 'kk'])}">R${i + 1}<small>max ${roundMax(r)}</small></th>`).join('')}<th title="${txt('Ва-банк', 'Ва-банк')}">VB<small>${G.bank.min}…+${G.bank.max}</small></th><th>Σ</th></tr></thead><tbody>${s.teams.map((t, i) => `<tr><th>${esc(t.name)}</th>${t.scores.map((v, r) => `<td><input type="number" min="${limits(r).min}" max="${limits(r).max}" step="${limits(r).step}" value="${v}" data-score="${i},${r}" aria-label="${esc(t.name)}, ${r === 6 ? txt('ва-банк', 'ва-банк') : txt('раунд', 'раунд') + ' ' + (r + 1)}"></td>`).join('')}<td id="sum-${i}">${total(t)}</td></tr>`).join('')}</tbody></table></div><p class="small muted">${txt('3-раунд: әр жауап 1–3 ұпай. 4–6 раунд: 3-тің еселіктері. Ва-банк: дұрыс болса +2 × ставка, қате болса − ставка.', 'Раунд 3: каждый ответ 1–3 балла. Раунды 4–6: кратно 3. Ва-банк: верно — +2 × ставка, неверно — −ставка.')}</p>`;
 }
 function agenda() {
   let at = 0;
@@ -333,7 +385,10 @@ function next() {
     case 'question': s.q < round().questions.length - 1 ? change('question', { q: s.q + 1 }) : change('review'); break;
     case 'review': change('submit'); break;
     case 'submit': if (left() === 0) change('answer'); break;
-    case 'answer': s.q < round().questions.length - 1 ? change('answer', { q: s.q + 1 }) : change('roundEnd'); break;
+    case 'answer': s.q < round().questions.length - 1 ? change('answer', { q: s.q + 1 }) : change(s.r === 5 ? 'bet' : 'roundEnd'); break;
+    case 'bet': change('bankQ'); break;
+    case 'bankQ': change('bankAnswer'); break;
+    case 'bankAnswer': change('roundEnd'); break;
     case 'roundEnd':
       if (ROUNDS_WITH_BREAK.includes(s.r)) change('break');
       else if (s.r === 5) { if (s.eventRunning) { s.elapsed = elapsed(); s.eventRunning = false; } change('final'); }
@@ -348,7 +403,7 @@ function playSound() {
   if (soundBusy) return;
   if (!s.sound) { s.sound = true; render(); }
   stopMusic(); soundBusy = true;
-  const d = [.18, .65, .18, .65];
+  const d = (question().sound || [0, 1, 0, 1]).map(b => b ? .65 : .18);
   let t = .4;
   d.forEach(n => { tone(660, n, t, .6); t += n + .45; });
   const b = root.querySelector('[data-a="playSound"]');
@@ -366,7 +421,7 @@ function printHtml(html) {
   p.remove();
 }
 function printSheets() {
-  printHtml(s.teams.map(t => `<article><h1>CODE MATRIX</h1><h2>${esc(t.name)}</h2>${G.rounds.map((r, i) => `<section><h3>${i + 1}. ${esc(r.name.kk)} / ${esc(r.name.ru)}</h3><div>${r.questions.map((_, j) => `<p>${j + 1}. ${r.ladder ? 'подсказка № ___ &nbsp; ' : ''}_______________________________________</p>`).join('')}</div></section>`).join('')}</article>`).join(''));
+  printHtml(s.teams.map(t => `<article><h1>CODE MATRIX</h1><h2>${esc(t.name)}</h2>${G.rounds.map((r, i) => `<section><h3>${i + 1}. ${esc(r.name.kk)} / ${esc(r.name.ru)}</h3><div>${r.questions.map((_, j) => `<p>${j + 1}. ${r.ladder ? 'подсказка № ___ &nbsp; ' : ''}_______________________________________</p>`).join('')}</div></section>`).join('')}<section><h3>VA-BANQUE</h3><p>Ставка (0–10): ______ &nbsp; Ответ: ______________________</p></section></article>`).join(''));
 }
 function printCards() {
   const intro = '<article><h1>Карточки раундов «Шифр» и «Эхо»</h1><p>На одну команду нужен один лист каждого задания. Копируйте по числу команд и режьте по пунктирным линиям.</p><p><b>«Шифр»:</b> карточки А (правила) получает 11 класс, карточки Б (данные) получает 10 класс.</p><p><b>«Эхо»:</b> карточки А (правила) получает 10 класс, карточки Б (данные) получает 11 класс.</p><p>Вслух не объясняйте, почему карточки разные. Этот лист ученикам не показывайте.</p></article>';
@@ -433,10 +488,10 @@ root.addEventListener('change', e => {
   if (e.target.id === 'team-size') { s.teamSize = Math.min(5, Math.max(3, Number(e.target.value) || 4)); e.target.value = s.teamSize; save(); }
   if (e.target.dataset.score) {
     const [i, r] = e.target.dataset.score.split(',').map(Number);
-    const v = Number(e.target.value), max = roundMax(G.rounds[r]), step = G.rounds[r].step;
-    if (e.target.value === '' || !Number.isInteger(v) || v < 0 || v > max || v % step !== 0) {
+    const v = Number(e.target.value), { min, max, step } = limits(r);
+    if (e.target.value === '' || !Number.isInteger(v) || v < min || v > max || v % step !== 0) {
       e.target.value = s.teams[i].scores[r];
-      e.target.setCustomValidity(txt(`0–${max}, қадам ${step}`, `От 0 до ${max}, шаг ${step}`));
+      e.target.setCustomValidity(txt(`${min}…${max}, қадам ${step}`, `От ${min} до ${max}, шаг ${step}`));
       e.target.reportValidity();
       setTimeout(() => e.target.setCustomValidity(''), 2000);
       return;
@@ -477,6 +532,7 @@ setInterval(() => {
     tone(880, .18); tone(880, .18, .3); tone(440, .5, .6);
     save(); render();
   }
+  if (s.running && s.stage === 'question' && question().rush && left() > 0 && left() <= 10) tone(1000, .06, 0, .5);
   const t = document.getElementById('countdown');
   if (t) { t.textContent = fmt(left()); t.classList.toggle('urgent', left() <= 10); }
   const et = document.getElementById('event-time');
