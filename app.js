@@ -158,6 +158,7 @@ const gridPic = (cells, cols) => `<div class="grid-pic" style="grid-template-col
 const soundWords = q => q.sound.map(b => b ? txt('ұзын', 'длинный') : txt('қысқа', 'короткий')).join(' / ');
 function visual(kind, mini = false, q = question()) {
   switch (kind) {
+    case 'lamps': return `<div class="lamps${mini ? ' mini' : ''}" aria-hidden="true">${q.lamps.map(row => `<div>${row.split('').map(c => `<i class="${c === '1' ? 'on' : ''}"></i>`).join('')}</div>`).join('')}</div>`;
     case 'pic': return `<div class="pics${mini ? ' mini' : ''}" aria-hidden="true">${q.silhouette && !mini ? `<span class="sil-frame"><img src="img/${q.pic}.svg" alt=""></span>` : `<img src="img/${q.pic}.svg" alt="">`}</div>`;
     case 'row': return `<div class="pics row${mini ? ' mini' : ''}" aria-hidden="true">${q.pics.map(p => `<img src="img/${p}.svg" alt="">`).join('')}</div>`;
     case 'pixel': return `<div class="pixel-shot${mini ? ' mini' : ''}" aria-hidden="true" style="grid-template-columns:repeat(${q.bitmap[0].length},1fr)">${q.bitmap.join('').split('').map(ch => `<i class="${ch === '#' ? 'k' : ch === 'o' ? 'w' : ''}"></i>`).join('')}</div>`;
@@ -333,11 +334,11 @@ function betView() {
 }
 function bankQView() {
   const b = bank();
-  return `<div class="question-layout"><section><div class="rush-banner bank-banner"><b>${txt('ВА-БАНК', 'ВА-БАНК')}</b><span>${tr(b.topic)}</span></div><h1 class="question-title">${tr(b.q)}</h1></section><aside>${timer()}<p class="write-note">${tr(B('Жауапты бланкіге жазыңыз', 'Запишите ответ в бланк'))}</p></aside></div>`;
+  return `<div class="question-layout"><section><div class="rush-banner bank-banner"><b>${txt('ВА-БАНК', 'ВА-БАНК')}</b><span>${tr(b.topic)}</span></div><h1 class="question-title long">${tr(b.q)}</h1>${b.detail ? `<p class="detail">${tr(b.detail)}</p>` : ''}${b.visual ? `<div class="visual">${visual(b.visual, false, b)}</div>` : ''}</section><aside>${timer()}<p class="write-note">${tr(B('Жауапты бланкіге жазыңыз', 'Запишите ответ в бланк'))}</p></aside></div>`;
 }
 function bankAnswerView() {
   const b = bank();
-  return `<div class="answer-screen"><p class="eyebrow">VA-BANQUE · ${txt('ЖАУАП', 'ОТВЕТ')}</p><p class="answer-question">${tr(b.q)}</p><h1 class="answer-value">${tr(b.answer)}</h1><p class="answer-explain">${tr(b.explain)}</p><span class="points">${txt('Дұрыс: +2 × ставка · қате: − ставка', 'Верно: +2 × ставка · неверно: −ставка')}</span></div>`;
+  return `<div class="answer-screen"><p class="eyebrow">VA-BANQUE · ${txt('ЖАУАП', 'ОТВЕТ')}</p><p class="answer-question">${tr(b.q)}</p>${b.detail ? `<p class="detail">${tr(b.detail)}</p>` : ''}${b.visual ? `<div class="visual">${visual(b.visual, true, b)}</div>` : ''}<h1 class="answer-value">${tr(b.answer)}</h1><p class="answer-explain">${tr(b.explain)}</p><span class="points">${txt('Дұрыс: +2 × ставка · қате: − ставка', 'Верно: +2 × ставка · неверно: −ставка')}</span></div>`;
 }
 function tie() { return `<div class="question-layout"><section><p class="eyebrow">TIEBREAK</p><h1 class="question-title">${tr(G.tie.q)}</h1><p class="detail">${tr(G.tie.explain)}</p></section>${timer()}</div>`; }
 function body() {
