@@ -306,7 +306,7 @@ function submit() {
 function answer() {
   const q = question(), r = round();
   const pts = r.ladder ? `+3 / +2 / +1 ${txt('ұпай', 'балл(а)')}` : `+${pointsOf(r, q)} ${txt('ұпай', 'балл(а)')}`;
-  return `<div class="answer-screen"><p class="eyebrow">${txt('ЖАУАП', 'ОТВЕТ')} 0${s.q + 1} / 0${r.questions.length}</p><p class="answer-question">${tr(q.q)}</p>${story(q)}${clues(q)}${q.detail ? `<p class="detail">${tr(q.detail)}</p>` : ''}${code(q)}${options(q, true)}${q.hints ? `<p class="detail">${q.hints.map(h => tr(h)).join('<br>')}</p>` : ''}${q.visual ? `<div class="mini-visual">${visual(q.visual, true, q)}</div>` : ''}<h1 class="answer-value${answerOf(q).ru.length > 24 ? ' long' : ''}">${tr(answerOf(q))}</h1><p class="answer-explain">${tr(q.explain)}</p><span class="points">${pts}</span></div>`;
+  return `<div class="answer-screen"><p class="eyebrow">${txt('ЖАУАП', 'ОТВЕТ')} 0${s.q + 1} / 0${r.questions.length}</p><p class="answer-question">${tr(q.q)}</p>${story(q)}${clues(q)}${q.detail ? `<p class="detail">${tr(q.detail)}</p>` : ''}${code(q)}${options(q, true)}${q.hints ? `<p class="detail">${q.hints.map(h => tr(h)).join('<br>')}</p>` : ''}${q.visual ? `<div class="mini-visual">${visual(q.visual, true, q)}</div>` : ''}<h1 class="answer-value${answerOf(q).ru.length > 24 ? ' long' : ''}">${tr(answerOf(q))}</h1>${q.solution ? `<pre><code>${esc(q.solution)}</code></pre>` : ''}<p class="answer-explain">${tr(q.explain)}</p><span class="points">${pts}</span></div>`;
 }
 const ranking = () => s.teams.map(t => ({ ...t, total: total(t) })).sort((a, b) => b.total - a.total);
 function leaderboard() {
