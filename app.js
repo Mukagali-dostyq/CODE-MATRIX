@@ -3,7 +3,7 @@
 
 const G = window.GAME;
 const root = document.getElementById('app');
-const KEY = 'code-matrix-v4';
+const KEY = 'code-matrix-v5';
 const STAGES = ['home', 'mixer', 'rules', 'round', 'question', 'review', 'submit', 'answer', 'roundEnd', 'break', 'bet', 'bankQ', 'bankAnswer', 'final', 'tie', 'tieAnswer'];
 const ROUNDS_WITH_BREAK = [1, 3];
 
@@ -158,6 +158,10 @@ const gridPic = (cells, cols) => `<div class="grid-pic" style="grid-template-col
 const soundWords = q => q.sound.map(b => b ? txt('ұзын', 'длинный') : txt('қысқа', 'короткий')).join(' / ');
 function visual(kind, mini = false, q = question()) {
   switch (kind) {
+    case 'pic': return `<div class="pics${mini ? ' mini' : ''}" aria-hidden="true">${q.silhouette && !mini ? `<span class="sil-frame"><img src="img/${q.pic}.svg" alt=""></span>` : `<img src="img/${q.pic}.svg" alt="">`}</div>`;
+    case 'row': return `<div class="pics row${mini ? ' mini' : ''}" aria-hidden="true">${q.pics.map(p => `<img src="img/${p}.svg" alt="">`).join('')}</div>`;
+    case 'pixel': return `<div class="pixel-shot${mini ? ' mini' : ''}" aria-hidden="true" style="grid-template-columns:repeat(${q.bitmap[0].length},1fr)">${q.bitmap.join('').split('').map(ch => `<i class="${ch === '#' ? 'k' : ch === 'o' ? 'w' : ''}"></i>`).join('')}</div>`;
+    case 'melody': return `<div class="sound-task"><div class="waveform" aria-hidden="true">${Array.from({ length: 31 }, (_, i) => `<i style="height:${15 + ((i * 37) % 65)}px"></i>`).join('')}</div>${mini ? '' : button('playMelody', 'Әуенді тыңдау', 'Прослушать мелодию', 'primary')}</div>`;
     case 'pics': return `<div class="pics${mini ? ' mini' : ''}" aria-hidden="true"><img src="img/${q.pics[0]}.svg" alt=""><span>+</span><img src="img/${q.pics[1]}.svg" alt=""><span>=</span><b>?</b></div>`;
     case 'compare': {
       const p = q.puzzle, { left, right } = comparePuzzle(p);
@@ -185,6 +189,7 @@ const LETTERS = 'ABCD';
 const options = (q, reveal = false) => q.options ? `<div class="options">${q.options.map((o, i) => `<div class="option${reveal && i === q.correct ? ' correct' : ''}"><b>${LETTERS[i]}</b><span>${tr(o)}</span></div>`).join('')}</div>` : '';
 const answerOf = q => q.options ? { kk: `${LETTERS[q.correct]} · ${q.options[q.correct].kk}`, ru: `${LETTERS[q.correct]} · ${q.options[q.correct].ru}` } : q.answer;
 const mark = html => html.replace(/(ХОМЯК[А-ЯЁ]*|АТЖАЛМАН[А-ЯӘІҢҒҮҰҚӨҺ]*)/g, '<mark>$1</mark>');
+const clues = q => q.clues ? `<div class="clues">${q.clues.map((c, i) => `<div><b>0${i + 1}</b>${tr(c)}</div>`).join('')}</div>` : '';
 const story = q => q.story ? `<p class="story">${mark(tr(q.story, 'story-text'))}</p>` : '';
 const code = q => q.code ? `<pre><code>${esc(q.code)}</code></pre>` : '';
 
@@ -254,7 +259,7 @@ function nav() {
 }
 function home() {
   const started = s.elapsed > 0 || s.resume;
-  return `<div class="home-layout"><section class="home-main"><h1>CODE<br><em>MATRIX</em><span class="title-dot">_</span></h1><p class="home-sub">${tr(B('Информатикадан білімдеріңізді тексереміз.', 'Проверим ваши знания по информатике.'))}</p><div class="home-meta"><div><strong>06</strong><span>${txt('раунд', 'раундов')}</span></div><div><strong>50</strong><span>${txt('ұпай', 'баллов')}</span></div><div><strong>×2</strong><span>${txt('ва-банк', 'ва-банк')}</span></div><div><strong>90<span>${txt('мин', 'мин')}</span></strong><span>${txt('үзілістермен', 'с перерывами')}</span></div></div><div class="home-start">${button('start', started ? 'Жалғастыру' : 'Ойынды бастау', started ? 'Продолжить' : 'Начать игру', 'primary large')}${button('toMixer', 'Командалар жеребесі', 'Жеребьёвка команд', 'large')}${button('agenda', '90 минут жоспары', 'План на 90 минут', 'subtle large')}</div></section></div>`;
+  return `<div class="home-layout"><section class="home-main"><h1>CODE<br><em>MATRIX</em><span class="title-dot">_</span></h1><p class="home-sub">${tr(B('Информатикадан білімдеріңізді тексереміз.', 'Проверим ваши знания по информатике.'))}</p><div class="home-meta"><div><strong>06</strong><span>${txt('раунд', 'раундов')}</span></div><div><strong>${G.maxScore}</strong><span>${txt('ұпай', 'баллов')}</span></div><div><strong>×2</strong><span>${txt('ва-банк', 'ва-банк')}</span></div><div><strong>90<span>${txt('мин', 'мин')}</span></strong><span>${txt('үзілістермен', 'с перерывами')}</span></div></div><div class="home-start">${button('start', started ? 'Жалғастыру' : 'Ойынды бастау', started ? 'Продолжить' : 'Начать игру', 'primary large')}${button('toMixer', 'Командалар жеребесі', 'Жеребьёвка команд', 'large')}${button('agenda', '90 минут жоспары', 'План на 90 минут', 'subtle large')}</div></section></div>`;
 }
 function mixer() {
   const revealed = s.mixed ? s.revealed : 0;
@@ -271,7 +276,7 @@ function rules() {
   const items = [
     B('Командада 3–5 адам. Телефондар үзіліске дейін қолданылмайды.', 'В команде 3–5 человек. Телефоны используются только на перерывах.'),
     B('Әр раунд: сұрақтар, қайталау, бланкілерді тапсыру, жауаптар.', 'Каждый раунд: задания, повтор, сдача бланков, ответы.'),
-    B('Барлығы 50 ұпай және финалда ва-банк. Ва-банктен басқа қате жауапқа айып жоқ.', 'Всего 50 баллов и ва-банк в финале. Штрафов нет, кроме ва-банка.'),
+    B(`Барлығы ${G.maxScore} ұпай және финалда ва-банк. Ва-банктен басқа қате жауапқа айып жоқ.`, `Всего ${G.maxScore} баллов и ва-банк в финале. Штрафов нет, кроме ва-банка.`),
     B('2 және 4-раундтан кейін 5 минут үзіліс.', 'После раундов 2 и 4 — перерывы по 5 минут.')
   ];
   return `<div class="stage-intro"><div><p class="eyebrow">BRIEFING / 05:00</p><h1>${tr(B('Ойын ережелері', 'Правила игры'))}</h1><div class="rules-list">${items.map((b, i) => `<p><span>0${i + 1}</span>${tr(b)}</p>`).join('')}</div></div>${timer()}</div>`;
@@ -280,7 +285,7 @@ function roundIntro() {
   const r = round();
   const points = r.ladder ? '3 / 2 / 1' : r.questions.some(q => q.points) ? `${r.points}–${Math.max(...r.questions.map(q => pointsOf(r, q)))}` : r.points;
   const hook = ['kk', 'ru'].filter(l => s.lang === 'both' || s.lang === l).map(l => `<p class="hook" lang="${l}" style="--n:${r.hook[l].length}">${esc(r.hook[l])}</p>`).join('');
-  return `<div class="stage-intro round-intro"><div><p class="eyebrow">ROUND ${String(s.r + 1).padStart(2, '0')} / 06</p><div class="hooks">${hook}</div><h1>${tr(r.name)}</h1><p class="lead">${tr(r.sub)}</p><div class="round-facts"><span>${r.questions.length} ${txt('тапсырма', 'заданий')}${r.bankQuestion ? txt(' + ва-банк', ' + ва-банк') : ''}</span><span>${r.minutes} ${txt('минут', 'минут')}</span><span>${points} ${txt('ұпай / жауап', 'балл(а) / ответ')}</span></div><p class="rule-copy">${tr(r.rule)}</p></div><div class="giant-number" aria-hidden="true">${String(s.r + 1).padStart(2, '0')}</div></div>`;
+  return `<div class="stage-intro round-intro"><div><p class="eyebrow">ROUND ${String(s.r + 1).padStart(2, '0')} / 06</p><div class="hooks">${hook}</div><h1>${tr(r.name)}</h1><p class="lead">${tr(r.sub)}</p><div class="round-facts"><span>${r.questions.length} ${txt('тапсырма', 'заданий')}${r.bankQuestion ? txt(' + ва-банк', ' + ва-банк') : ''}</span><span>${r.minutes} ${txt('минут', 'минут')}</span><span>${points} ${txt('ұпай / жауап', 'балл(а) / ответ')}</span></div><p class="rule-copy">${tr(r.rule)}</p>${r.example ? `<div class="example"><span class="mono">${txt('МЫСАЛ', 'ПРИМЕР')}</span><div class="pics mini" aria-hidden="true"><img src="img/${r.example.pics[0]}.svg" alt=""><span>+</span><img src="img/${r.example.pics[1]}.svg" alt=""><span>=</span><img src="img/${r.example.result}.svg" alt=""></div><strong>${tr(r.example.answer)}</strong></div>` : ''}</div><div class="giant-number" aria-hidden="true">${String(s.r + 1).padStart(2, '0')}</div></div>`;
 }
 function questionView() {
   const q = question(), r = round();
@@ -290,10 +295,10 @@ function questionView() {
     ? `<div class="ladder">${txt('Қазір жауап берсе', 'Если ответить сейчас')}<b>+${4 - s.hints}</b></div>`
     : `<p class="write-note">${tr(B('Жауапты бланкіге жазыңыз', 'Запишите ответ в бланк'))}</p>`;
   const rush = q.rush ? `<div class="rush-banner"><b>${txt('АСЫҒЫС', 'СПЕШКА')}</b><span>${q.time} ${txt('секунд', 'секунд')} · ${q.points} ${txt('ұпай', 'балла')}</span></div>` : '';
-  return `<div class="question-layout"><section>${rush}<p class="eyebrow">${label}</p><h1 class="question-title${q.q.ru.length > 90 || q.story ? ' long' : ''}">${q.story ? mark(tr(q.q)) : tr(q.q)}</h1>${story(q)}${q.detail ? `<p class="detail">${tr(q.detail)}</p>` : ''}${code(q)}${options(q)}${hints}${q.visual ? `<div class="visual">${visual(q.visual, false, q)}</div>` : ''}</section><aside>${timer()}${aside}</aside></div>`;
+  return `<div class="question-layout"><section>${rush}<p class="eyebrow">${label}</p><h1 class="question-title${q.q.ru.length > 90 || q.story ? ' long' : ''}">${q.story ? mark(tr(q.q)) : tr(q.q)}</h1>${story(q)}${clues(q)}${q.detail ? `<p class="detail">${tr(q.detail)}</p>` : ''}${code(q)}${options(q)}${hints}${q.visual ? `<div class="visual">${visual(q.visual, false, q)}</div>` : ''}</section><aside>${timer()}${aside}</aside></div>`;
 }
 function review() {
-  return `<p class="eyebrow">RECAP</p><h1 class="medium-title">${tr(B('Жауаптарды тексеріңіз', 'Проверьте свои ответы'))}</h1><div class="review-list">${round().questions.map((q, i) => `<article><b class="review-number">0${i + 1}</b><div><h2>${tr(q.q)}</h2>${story(q)}${q.detail ? `<p>${tr(q.detail)}</p>` : ''}${code(q)}${options(q)}${q.hints ? `<p>${q.hints.map(h => tr(h)).join('<br>')}</p>` : ''}${q.visual ? `<div class="mini-visual">${visual(q.visual, true, q)}</div>` : ''}</div></article>`).join('')}</div>`;
+  return `<p class="eyebrow">RECAP</p><h1 class="medium-title">${tr(B('Жауаптарды тексеріңіз', 'Проверьте свои ответы'))}</h1><div class="review-list">${round().questions.map((q, i) => `<article><b class="review-number">0${i + 1}</b><div><h2>${tr(q.q)}</h2>${story(q)}${clues(q)}${q.detail ? `<p>${tr(q.detail)}</p>` : ''}${code(q)}${options(q)}${q.hints ? `<p>${q.hints.map(h => tr(h)).join('<br>')}</p>` : ''}${q.visual ? `<div class="mini-visual">${visual(q.visual, true, q)}</div>` : ''}</div></article>`).join('')}</div>`;
 }
 function submit() {
   return `<div class="center-stage"><p class="eyebrow">PENS DOWN</p><h1>${tr(B('Бланкілерді тапсырыңыз', 'Сдайте бланки'))}</h1><p class="lead">${tr(B('Жүргізуші бланкілерді жинаған соң жауаптарды ашады.', 'Ведущий откроет ответы после сбора бланков.'))}</p>${timer()}</div>`;
@@ -301,7 +306,7 @@ function submit() {
 function answer() {
   const q = question(), r = round();
   const pts = r.ladder ? `+3 / +2 / +1 ${txt('ұпай', 'балл(а)')}` : `+${pointsOf(r, q)} ${txt('ұпай', 'балл(а)')}`;
-  return `<div class="answer-screen"><p class="eyebrow">${txt('ЖАУАП', 'ОТВЕТ')} 0${s.q + 1} / 0${r.questions.length}</p><p class="answer-question">${tr(q.q)}</p>${story(q)}${q.detail ? `<p class="detail">${tr(q.detail)}</p>` : ''}${code(q)}${options(q, true)}${q.hints ? `<p class="detail">${q.hints.map(h => tr(h)).join('<br>')}</p>` : ''}${q.visual ? `<div class="mini-visual">${visual(q.visual, true, q)}</div>` : ''}<h1 class="answer-value">${tr(answerOf(q))}</h1><p class="answer-explain">${tr(q.explain)}</p><span class="points">${pts}</span></div>`;
+  return `<div class="answer-screen"><p class="eyebrow">${txt('ЖАУАП', 'ОТВЕТ')} 0${s.q + 1} / 0${r.questions.length}</p><p class="answer-question">${tr(q.q)}</p>${story(q)}${clues(q)}${q.detail ? `<p class="detail">${tr(q.detail)}</p>` : ''}${code(q)}${options(q, true)}${q.hints ? `<p class="detail">${q.hints.map(h => tr(h)).join('<br>')}</p>` : ''}${q.visual ? `<div class="mini-visual">${visual(q.visual, true, q)}</div>` : ''}<h1 class="answer-value${answerOf(q).ru.length > 24 ? ' long' : ''}">${tr(answerOf(q))}</h1><p class="answer-explain">${tr(q.explain)}</p><span class="points">${pts}</span></div>`;
 }
 const ranking = () => s.teams.map(t => ({ ...t, total: total(t) })).sort((a, b) => b.total - a.total);
 function leaderboard() {
@@ -382,7 +387,7 @@ function prepDialog() {
   return `<h2>Подготовка жеребьёвки</h2><p class="muted">Эти данные видите только вы. Закройте окно до того, как показывать экран ученикам.</p>${prepWarn ? '<p class="host-note">Нужно минимум 4 игрока. Впишите список и повторите жеребьёвку.</p>' : ''}<h3>Список игроков</h3><p class="small muted">По одному в строке: имя и класс через запятую или пробел. Например: «Айдана, 10» или «Тимур Ким 11А».</p><label class="sr-only" for="roster">Список игроков</label><textarea id="roster" placeholder="Айдана, 10&#10;Алишер, 11">${esc(s.roster)}</textarea><div class="row"><span id="roster-count" class="mono small">${p.length} игроков · 10 кл.: ${g10} · 11 кл.: ${g11}</span></div><div class="row"><label for="team-size">Размер команды (3–5)</label><input id="team-size" type="number" min="3" max="5" value="${s.teamSize}"></div><div class="row">${button('closePrep', 'Сохранить и закрыть', 'Сохранить и закрыть', 'primary')}</div>`;
 }
 function help() {
-  return `<h2>${txt('Жүргізушіге', 'Ведущему')}</h2><p>Показывайте сайт с одного устройства на проекторе. Все задания видны на экране, команды пишут ответы на любом листе бумаги (бланки можно распечатать, но это не обязательно). Это окно ученикам не показывайте.</p><h3>Подготовка</h3><div class="row">${button('prep', 'Список игроков и жеребьёвка', 'Список игроков', '')}${button('print', 'Печать бланков', 'Печать бланков', '')}${button('printGrowth', 'Печать карт роста', 'Карты роста', '')}</div><h3>Что делать в каждом раунде</h3>${G.rounds.map((r, i) => `<p class="host-note"><strong>${i + 1}. ${esc(r.name.ru)}.</strong> ${esc(r.host)}</p>`).join('')}<h3>Пульт</h3><p>Всё ведётся одной кнопкой «Далее» (→ или PageDown на пульте). На экране с таймером первое нажатие запускает время, следующее открывает следующий экран. В раунде «Три подсказки» нажатия во время таймера открывают подсказки. «Назад» (← или PageUp) возвращает на шаг назад, пробел ставит таймер на паузу, Esc закрывает окно.</p><p>В раунде «Видишь, слышишь» включите звук. Если звук не работает, используйте вариант без звука. Фоновая музыка доступна на перерыве.</p><label class="volume-label">${txt('Дыбыс деңгейі', 'Громкость')}<input type="range" id="volume" min="0" max="0.8" step="0.05" value="${s.volume}"></label><p class="small muted">Прогресс сохраняется только в этом браузере. «Новая игра» сбрасывает баллы.</p><p class="small muted">Картинки раунда «1 + 1»: Twemoji, лицензия CC BY 4.0.</p>`;
+  return `<h2>${txt('Жүргізушіге', 'Ведущему')}</h2><p>Показывайте сайт с одного устройства на проекторе. Все задания видны на экране, команды пишут ответы на любом листе бумаги (бланки можно распечатать, но это не обязательно). Это окно ученикам не показывайте.</p><h3>Подготовка</h3><div class="row">${button('prep', 'Список игроков и жеребьёвка', 'Список игроков', '')}${button('print', 'Печать бланков', 'Печать бланков', '')}${button('printGrowth', 'Печать карт роста', 'Карты роста', '')}</div><h3>Что делать в каждом раунде</h3>${G.rounds.map((r, i) => `<p class="host-note"><strong>${i + 1}. ${esc(r.name.ru)}.</strong> ${esc(r.host)}</p>`).join('')}<h3>Пульт</h3><p>Всё ведётся одной кнопкой «Далее» (→ или PageDown на пульте). На экране с таймером первое нажатие запускает время, следующее открывает следующий экран. В раунде «Три подсказки» нажатия во время таймера открывают подсказки. «Назад» (← или PageUp) возвращает на шаг назад, пробел ставит таймер на паузу, Esc закрывает окно.</p><p>В раунде Shuffle включите звук: мелодия играет сама, когда запускается таймер. Фоновая музыка доступна на перерыве.</p><label class="volume-label">${txt('Дыбыс деңгейі', 'Громкость')}<input type="range" id="volume" min="0" max="0.8" step="0.05" value="${s.volume}"></label><p class="small muted">Прогресс сохраняется только в этом браузере. «Новая игра» сбрасывает баллы.</p><p class="small muted">Картинки: Twemoji, лицензия CC BY 4.0.</p>`;
 }
 
 /* ---------- render ---------- */
@@ -432,6 +437,7 @@ function next() {
       if (s.remaining > 0) { s.deadline = Date.now() + s.remaining * 1000; s.running = true; }
       save(); render();
       if (st.stage === 'question' && question().visual === 'sound') setTimeout(playSound, 50);
+      if (st.stage === 'question' && question().melody) { const notes = question().melody; setTimeout(() => playMelody(notes), 50); }
       return;
     }
     if (st.stage === 'question' && question().hints && s.hints < 3 && left() > 0) { s.hints++; return render(); }
@@ -447,6 +453,15 @@ function prev() {
   if (st.stage === 'mixer') { if (s.mixed && s.revealed > 0) { s.revealed--; render(); } return; }
   if (st.timed && s.phase === 'run') return go(s.i);
   if (s.i > 0) go(s.i - 1);
+}
+function playMelody(notes = question().melody) {
+  if (soundBusy || !notes) return;
+  if (!s.sound) { s.sound = true; render(); }
+  stopMusic(); soundBusy = true;
+  const beat = .16;
+  let t = .3;
+  notes.forEach(([f, n]) => { tone(f, n * beat * .9, t, .5); t += n * beat; });
+  setTimeout(() => { soundBusy = false; }, t * 1000);
 }
 function playSound() {
   if (soundBusy) return;
@@ -503,6 +518,7 @@ root.addEventListener('click', e => {
     case 'sound': s.sound = !s.sound; if (!s.sound) stopMusic(); render(); break;
     case 'music': musicToggle(); break;
     case 'playSound': playSound(); break;
+    case 'playMelody': playMelody(question().melody); break;
     case 'fallback': document.getElementById('sound-fallback').hidden = false; break;
     case 'print': printSheets(); break;
     case 'printGrowth': printGrowth(); break;
