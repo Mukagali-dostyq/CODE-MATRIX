@@ -512,3 +512,8 @@ header, .round-nav, .main { position: relative; z-index: 1; }
 .example strong { font-size: 22px; }
 .answer-value.long { font-size: clamp(34px, 4vw, 58px); }
 @media (max-width: 700px) { .clues { grid-template-columns: 1fr; } }
+.lamps { display: flex; flex-wrap: wrap; gap: 14px; margin-top: 4px; }
+.lamps > div { display: flex; gap: 10px; padding: 14px 16px; background: #101827d9; border: 1px solid var(--line); border-radius: 14px; }
+.lamps i { display: block; width: 34px; height: 34px; border-radius: 50%; background: #1f2a3d; border: 2px solid #3a475f; }
+.lamps i.on { background: #ffd84d; border-color: #fff2b3; box-shadow: 0 0 18px #ffd84daa; }
+.lamps.mini i { width: 22px; height: 22px; }
